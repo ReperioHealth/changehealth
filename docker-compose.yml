@@ -1,0 +1,23 @@
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "3001:3001"
+    environment:
+      - PORT=3001
+      - OPTUM_ENV=${OPTUM_ENV:-production}
+      - OPTUM_CLIENT_ID=${OPTUM_CLIENT_ID:-}
+      - OPTUM_CLIENT_SECRET=${OPTUM_CLIENT_SECRET:-}
+    volumes:
+      - ./backend/src:/app/src
+    networks:
+      - app-network
+
+networks:
+  app-network:
+    driver: bridge
+
