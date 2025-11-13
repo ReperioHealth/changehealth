@@ -239,3 +239,73 @@ export async function getAllPayers(credentials?: Credentials, environment?: stri
   };
 }
 
+export async function validateClaim(requestData: any, credentials?: Credentials, environment?: string) {
+  const creds: Credentials = credentials || {
+    clientId: process.env.OPTUM_CLIENT_ID!,
+    clientSecret: process.env.OPTUM_CLIENT_SECRET!
+  };
+
+  if (!creds.clientId || !creds.clientSecret) {
+    throw new Error('API credentials required');
+  }
+
+  const baseUrl = getBaseUrl(environment);
+  const token = await getAccessToken(creds, environment, undefined);
+  
+  console.log('Calling claim validation API:', `${baseUrl}/medicalnetwork/professionalclaims/v3/validation`);
+  console.log('Request payload:', JSON.stringify(requestData, null, 2));
+  
+  const response = await axios.post(
+    `${baseUrl}/medicalnetwork/professionalclaims/v3/validation`,
+    requestData,
+    {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+        'x-chng-trace-id': requestData.controlNumber || `trace-${Date.now()}`
+      }
+    }
+  );
+
+  console.log('✅ Claim validation succeeded!');
+  console.log('Response status:', response.status);
+  console.log('Response data:', JSON.stringify(response.data, null, 2));
+  
+  return response.data;
+}
+
+export async function submitClaim(requestData: any, credentials?: Credentials, environment?: string) {
+  const creds: Credentials = credentials || {
+    clientId: process.env.OPTUM_CLIENT_ID!,
+    clientSecret: process.env.OPTUM_CLIENT_SECRET!
+  };
+
+  if (!creds.clientId || !creds.clientSecret) {
+    throw new Error('API credentials required');
+  }
+
+  const baseUrl = getBaseUrl(environment);
+  const token = await getAccessToken(creds, environment, undefined);
+  
+  console.log('Calling claim submission API:', `${baseUrl}/medicalnetwork/professionalclaims/v3/submission`);
+  console.log('Request payload:', JSON.stringify(requestData, null, 2));
+  
+  const response = await axios.post(
+    `${baseUrl}/medicalnetwork/professionalclaims/v3/submission`,
+    requestData,
+    {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+        'x-chng-trace-id': requestData.controlNumber || `trace-${Date.now()}`
+      }
+    }
+  );
+
+  console.log('✅ Claim submission succeeded!');
+  console.log('Response status:', response.status);
+  console.log('Response data:', JSON.stringify(response.data, null, 2));
+  
+  return response.data;
+}
+
