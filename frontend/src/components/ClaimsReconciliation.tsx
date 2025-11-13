@@ -1,0 +1,24 @@
+import React from 'react';
+import type { Environment, Credentials } from '../types/eligibility';
+
+interface Props {
+  environment: Environment;
+  credentials: Credentials | null;
+}
+
+export default function ClaimsReconciliation({ environment, credentials }: Props) {
+  return (
+    <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+      <div className="text-center py-12">
+        <svg className="mx-auto h-16 w-16 text-gray-400 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
+        </svg>
+        <h2 className="text-2xl font-bold text-gray-900 mb-2">Claims Reconciliation</h2>
+        <p className="text-gray-600 mb-4">Reconcile and match claims with payments</p>
+        <p className="text-sm text-gray-500">Coming soon...</p>
+      </div>
+    </div>
+  );
+}
+
+
