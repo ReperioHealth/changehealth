@@ -114,110 +114,12 @@ function formatSSN(value: string): string {
   return `${digits.slice(0, 3)}-${digits.slice(3, 5)}-${digits.slice(5)}`;
 }
 
-// Format EIN: XX-XXXXXXX
-function formatEIN(value: string): string {
-  const digits = value.replace(/\D/g, '').slice(0, 9);
-  if (digits.length <= 2) return digits;
-  return `${digits.slice(0, 2)}-${digits.slice(2)}`;
-}
-
 // Validate SSN (9 digits)
 function validateSSN(value: string): boolean {
   const digits = value.replace(/\D/g, '');
   return digits.length === 9 && /^\d{9}$/.test(digits);
 }
 
-// Validate EIN (9 digits)
-function validateEIN(value: string): boolean {
-  const digits = value.replace(/\D/g, '');
-  return digits.length === 9 && /^\d{9}$/.test(digits);
-}
-
-// Sandbox test data
-const SANDBOX_DEFAULT_CLAIM: Partial<ClaimSubmissionRequest> = {
-  controlNumber: '000000001',
-  tradingPartnerServiceId: '00001',
-  submitter: {
-    organizationName: 'HAPPY DOCTORS GROUP',
-    contactInformation: {
-      name: 'CONTACT NAME',
-      phoneNumber: '5554567890',
-      email: 'email@email.com'
-    }
-  },
-  receiver: {
-    organizationName: 'RECEIVER ORG'
-  },
-  subscriber: {
-    memberId: '0000000001',
-    firstName: 'johnone',
-    lastName: 'doeOne',
-    gender: 'M',
-    dateOfBirth: '19800102',
-    address: {
-      address1: '123 address1',
-      city: 'city1',
-      state: 'wa',
-      postalCode: '981010000'
-    },
-    contactInformation: {
-      phoneNumber: '5554567890'
-    },
-    paymentResponsibilityLevelCode: '1'
-  },
-  billing: {
-    organizationName: 'HAPPY DOCTORS GROUP',
-    npi: '1760854442',
-    providerType: 'Organization',
-    address: {
-      address1: '123 address1',
-      city: 'city1',
-      state: 'wa',
-      postalCode: '981010000'
-    },
-    contactInformation: {
-      phoneNumber: '5554567890',
-      email: 'email@email.com'
-    }
-  },
-  rendering: {
-    npi: '1760854442',
-    providerType: 'Organization'
-  },
-  claimInformation: {
-    claimFilingCode: '',
-    patientControlNumber: '12345',
-    placeOfServiceCode: '11',
-    claimChargeAmount: '2875', // Stored as cents (28.75)
-    patientAmountPaid: '0', // Stored as cents (0.00)
-    planParticipationCode: '',
-    claimFrequencyCode: '1',
-    signatureIndicator: 'Y',
-    benefitsAssignmentCertificationIndicator: 'Y',
-    releaseInformationCode: 'Y',
-    healthCareCodeInformation: [
-      {
-        diagnosisTypeCode: 'ABK',
-        diagnosisCode: 'E11.9'
-      }
-    ],
-    serviceLines: [
-      {
-        serviceDate: '20050514',
-        professionalService: {
-          procedureIdentifier: 'HC',
-          procedureCode: 'E0570',
-          lineItemChargeAmount: '25.00',
-          measurementUnit: 'UN',
-          serviceUnitCount: '1',
-          compositeDiagnosisCodePointers: {
-            diagnosisCodePointers: ['1']
-          }
-        }
-      }
-    ]
-  }
-};
 
 function formatDateForAPI(dateStr: string): string {
   if (!dateStr) return '';
@@ -234,8 +136,25 @@ function formatDateForInput(dateStr: string): string {
 
 export default function ClaimForm({ environment, credentials, onEnvironmentChange }: Props) {
   const [formData, setFormData] = useState<Partial<ClaimSubmissionRequest>>(() => {
-    return environment === 'sandbox' ? JSON.parse(JSON.stringify(SANDBOX_DEFAULT_CLAIM)) : {};
+    const initialData: Partial<ClaimSubmissionRequest> = {};
+    // Box 1: Set "Other" (CI) as default
+    initialData.claimInformation = {
+      claimFilingCode: 'CI',
+      outsideLab: false // Box 20: Set "No" as default
+    } as Partial<ClaimSubmissionRequest>['claimInformation'];
+    // Box 25: Set EIN as default
+    initialData.billing = {
+      taxIdType: 'EIN'
+    } as Partial<ClaimSubmissionRequest>['billing'];
+    return initialData;
   });
+  
+  // Local state for signature fields (not in API structure)
+  const [patientSignature, setPatientSignature] = useState('Signature on file');
+  const [patientSignatureDate, setPatientSignatureDate] = useState('');
+  const [authorizedSignature, setAuthorizedSignature] = useState('Signature on file');
+  const [physicianSignature, setPhysicianSignature] = useState('Signature on file');
+  const [physicianSignatureDate, setPhysicianSignatureDate] = useState('');
 
   const [loading, setLoading] = useState(false);
   const [response, setResponse] = useState<ClaimResponse | null>(null);
@@ -244,14 +163,52 @@ export default function ClaimForm({ environment, credentials, onEnvironmentChang
   const [actionType, setActionType] = useState<'validate' | 'submit' | null>(null);
 
   useEffect(() => {
-    if (environment === 'sandbox') {
-      setFormData(JSON.parse(JSON.stringify(SANDBOX_DEFAULT_CLAIM)));
-    } else {
-      setFormData({});
-    }
+    // Reset form data when environment changes, but keep the requested defaults
+    const initialData: Partial<ClaimSubmissionRequest> = {};
+    // Box 1: Set "Other" (CI) as default
+    initialData.claimInformation = {
+      claimFilingCode: 'CI',
+      outsideLab: false // Box 20: Set "No" as default
+    } as Partial<ClaimSubmissionRequest>['claimInformation'];
+    // Box 25: Set EIN as default
+    initialData.billing = {
+      taxIdType: 'EIN'
+    } as Partial<ClaimSubmissionRequest>['billing'];
+    setFormData(initialData);
+    // Reset signature fields
+    setPatientSignature('Signature on file');
+    setPatientSignatureDate('');
+    setAuthorizedSignature('Signature on file');
+    setPhysicianSignature('Signature on file');
+    setPhysicianSignatureDate('');
     setResponse(null);
     setError(null);
   }, [environment]);
+
+  // Auto-calculate Box 28 (Total Charge) from sum of all Box 24f (service line charges)
+  useEffect(() => {
+    const serviceLines = formData.claimInformation?.serviceLines || [];
+    let totalCents = 0;
+    
+    serviceLines.forEach(line => {
+      const chargeAmount = line.professionalService?.lineItemChargeAmount;
+      if (chargeAmount && chargeAmount !== '') {
+        // Charge amounts are stored as strings of digits (cents)
+        const cents = parseInt(chargeAmount, 10);
+        if (!isNaN(cents)) {
+          totalCents += cents;
+        }
+      }
+    });
+    
+    // Update Box 28 with the calculated total (only if different to avoid infinite loop)
+    const totalAsString = totalCents.toString();
+    const currentTotal = formData.claimInformation?.claimChargeAmount || '0';
+    if (currentTotal !== totalAsString) {
+      updateField(['claimInformation', 'claimChargeAmount'], totalAsString);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [formData.claimInformation?.serviceLines]);
 
   // Auto-update Box 4 and Box 7 when Box 2 or Box 5 changes, if "Self" is selected in Box 6
   useEffect(() => {
@@ -352,24 +309,27 @@ export default function ClaimForm({ environment, credentials, onEnvironmentChang
   };
 
   const addServiceLine = () => {
-    const serviceLines = formData.claimInformation?.serviceLines || [];
-    if (serviceLines.length >= 6) return;
+    const currentLines = formData.claimInformation?.serviceLines || [];
+    if (currentLines.length >= 6) return;
     
     const newLine: ServiceLine = {
       serviceDate: '',
+      serviceDateEnd: '',
       professionalService: {
         procedureIdentifier: 'HC',
         procedureCode: '',
+        procedureModifiers: [],
         lineItemChargeAmount: '',
         measurementUnit: 'UN',
-        serviceUnitCount: '1',
+        serviceUnitCount: '',
+        placeOfServiceCode: '10',
         compositeDiagnosisCodePointers: {
-          diagnosisCodePointers: ['1']
+          diagnosisCodePointers: []
         }
       }
     };
     
-    updateField(['claimInformation', 'serviceLines'], [...serviceLines, newLine]);
+    updateField(['claimInformation', 'serviceLines'], [...currentLines, newLine]);
   };
 
   const updateServiceLine = (index: number, field: string, value: string) => {
@@ -617,8 +577,31 @@ export default function ClaimForm({ environment, credentials, onEnvironmentChang
     }
   };
 
+  // Ensure at least one service line exists
   const serviceLines = formData.claimInformation?.serviceLines || [];
+  const effectiveServiceLines = serviceLines.length === 0 ? [{
+    serviceDate: '',
+    serviceDateEnd: '',
+    professionalService: {
+      procedureIdentifier: 'HC',
+      procedureCode: '',
+      procedureModifiers: [],
+      lineItemChargeAmount: '',
+      measurementUnit: 'UN',
+      serviceUnitCount: '',
+      placeOfServiceCode: '10',
+      compositeDiagnosisCodePointers: {
+        diagnosisCodePointers: []
+      }
+    }
+  }] : serviceLines;
+  
   const diagnoses = formData.claimInformation?.healthCareCodeInformation || [];
+  
+  const removeServiceLine = (index: number) => {
+    const updated = effectiveServiceLines.filter((_, i) => i !== index);
+    updateField(['claimInformation', 'serviceLines'], updated);
+  };
 
   return (
     <div className="w-full">
@@ -642,7 +625,7 @@ export default function ClaimForm({ environment, credentials, onEnvironmentChang
           </div>
 
           {/* Box 1 */}
-          <div className="border-b border-gray-300 pb-3">
+          <div className="pb-3">
             <label className="text-sm font-bold text-[#c41e3a] mb-2 block">1. Insurance Type</label>
             <div className="flex flex-wrap gap-4">
               {[
@@ -654,7 +637,7 @@ export default function ClaimForm({ environment, credentials, onEnvironmentChang
                 { code: 'BL', label: 'FECA BLK LUNG' },
                 { code: 'CI', label: 'OTHER' }
               ].map(({ code, label }) => {
-                const isChecked = formData.claimInformation?.claimFilingCode === code;
+                const isChecked = formData.claimInformation?.claimFilingCode === code || (code === 'CI' && !formData.claimInformation?.claimFilingCode);
                 return (
                   <label key={code} className="flex items-center gap-2 cursor-pointer">
                     <input
@@ -677,7 +660,7 @@ export default function ClaimForm({ environment, credentials, onEnvironmentChang
           </div>
 
           {/* Box 1a */}
-          <div className="border-b border-gray-300 pb-3">
+          <div className="pb-3">
             <label className="text-sm font-bold text-[#c41e3a] mb-2 block">1a. INSURED'S I.D. NUMBER</label>
             <input
               type="text"
@@ -688,7 +671,7 @@ export default function ClaimForm({ environment, credentials, onEnvironmentChang
           </div>
 
           {/* Box 2 */}
-          <div className="border-b border-gray-300 pb-3">
+          <div className="pb-3">
             <label className="text-sm font-bold text-[#c41e3a] mb-2 block">2. PATIENT'S NAME (Last Name, First Name, Middle Initial)</label>
             <div className="grid grid-cols-3 gap-4">
               <input
@@ -717,7 +700,7 @@ export default function ClaimForm({ environment, credentials, onEnvironmentChang
           </div>
 
           {/* Box 5 */}
-          <div className="border-b border-gray-300 pb-3">
+          <div className="pb-3">
             <label className="text-sm font-bold text-[#c41e3a] mb-2 block">5. PATIENT'S ADDRESS</label>
             <div className="space-y-2">
               <input
@@ -793,7 +776,7 @@ export default function ClaimForm({ environment, credentials, onEnvironmentChang
           </div>
 
           {/* Box 3 */}
-          <div className="border-b border-gray-300 pb-3">
+          <div className="pb-3">
             <label className="text-sm font-bold text-[#c41e3a] mb-2 block">3. PATIENT'S BIRTH DATE</label>
             <div className="flex items-center gap-4">
               <div className="flex items-center gap-2">
@@ -859,7 +842,7 @@ export default function ClaimForm({ environment, credentials, onEnvironmentChang
           </div>
 
           {/* Box 6 */}
-          <div className="border-b border-gray-300 pb-3">
+          <div className="pb-3">
             <label className="text-sm font-bold text-[#c41e3a] mb-2 block">6. PATIENT RELATIONSHIP TO INSURED</label>
             <div className="flex flex-wrap gap-4">
               <label className="flex items-center gap-2 cursor-pointer">
@@ -957,7 +940,7 @@ export default function ClaimForm({ environment, credentials, onEnvironmentChang
           </div>
 
           {/* Box 4 */}
-          <div className="border-b border-gray-300 pb-3">
+          <div className="pb-3">
             <label className="text-sm font-bold text-[#c41e3a] mb-2 block">4. INSURED'S NAME (Last Name, First Name, Middle Initial)</label>
             <div className="grid grid-cols-3 gap-4">
               <input
@@ -986,7 +969,7 @@ export default function ClaimForm({ environment, credentials, onEnvironmentChang
           </div>
 
           {/* Box 7 */}
-          <div className="border-b border-gray-300 pb-3">
+          <div className="pb-3">
             <label className="text-sm font-bold text-[#c41e3a] mb-2 block">7. INSURED'S ADDRESS</label>
             <div className="space-y-2">
               <input
@@ -1042,7 +1025,7 @@ export default function ClaimForm({ environment, credentials, onEnvironmentChang
           </div>
 
           {/* Box 11 */}
-          <div className="border-b border-gray-300 pb-3">
+          <div className="pb-3">
             <label className="text-sm font-bold text-[#c41e3a] mb-2 block">11. INSURED'S POLICY GROUP OR FECA NUMBER</label>
             <input
               type="text"
@@ -1053,7 +1036,7 @@ export default function ClaimForm({ environment, credentials, onEnvironmentChang
           </div>
 
           {/* Box 11a */}
-          <div className="border-b border-gray-300 pb-3">
+          <div className="pb-3">
             <label className="text-sm font-bold text-[#c41e3a] mb-2 block">11a. INSURED'S DATE OF BIRTH</label>
             <div className="flex items-center gap-4">
               <div className="flex items-center gap-2">
@@ -1079,19 +1062,19 @@ export default function ClaimForm({ environment, credentials, onEnvironmentChang
           </div>
 
           {/* Box 11b */}
-          <div className="border-b border-gray-300 pb-3">
+          <div className="pb-3">
             <label className="text-sm font-bold text-[#c41e3a] mb-2 block">11b. Other Claim ID</label>
             <input type="text" className="w-full p-2 border rounded" />
           </div>
 
           {/* Box 11c */}
-          <div className="border-b border-gray-300 pb-3">
+          <div className="pb-3">
             <label className="text-sm font-bold text-[#c41e3a] mb-2 block">11c. Insurance Plan Name</label>
             <input type="text" className="w-full p-2 border rounded" />
           </div>
 
           {/* Box 11d */}
-          <div className="border-b border-gray-300 pb-3">
+          <div className="pb-3">
             <label className="text-sm font-bold text-[#c41e3a] mb-2 block">11d. Is there another health benefit plan?</label>
             <div className="flex gap-4">
               <label className="flex items-center gap-2 cursor-pointer">
@@ -1116,13 +1099,13 @@ export default function ClaimForm({ environment, credentials, onEnvironmentChang
           </div>
 
           {/* Box 8 */}
-          <div className="border-b border-gray-300 pb-3">
+          <div className="pb-3">
             <label className="text-sm font-bold text-[#c41e3a] mb-2 block">8. RESERVED FOR NUCC USE</label>
             <div className="text-sm text-gray-500 italic">Reserved field</div>
           </div>
 
           {/* Box 9 */}
-          <div className={`border-b border-gray-300 pb-3 ${formData.claimInformation?.hasOtherHealthBenefitPlan === false ? 'opacity-50 bg-gray-50' : ''}`}>
+          <div className={`pb-3 ${formData.claimInformation?.hasOtherHealthBenefitPlan === false ? 'opacity-50 bg-gray-50' : ''}`}>
             <label className={`text-sm font-bold mb-2 block ${formData.claimInformation?.hasOtherHealthBenefitPlan === false ? 'text-gray-400' : 'text-[#c41e3a]'}`}>
               9. OTHER INSURED'S NAME (Last Name, First Name, Middle Initial)
               {formData.claimInformation?.hasOtherHealthBenefitPlan === false && <span className="ml-2 text-xs text-gray-500">(Disabled - No other health benefit plan)</span>}
@@ -1151,7 +1134,7 @@ export default function ClaimForm({ environment, credentials, onEnvironmentChang
           </div>
 
           {/* Box 9a */}
-          <div className={`border-b border-gray-300 pb-3 ${formData.claimInformation?.hasOtherHealthBenefitPlan === false ? 'opacity-50 bg-gray-50' : ''}`}>
+          <div className={`pb-3 ${formData.claimInformation?.hasOtherHealthBenefitPlan === false ? 'opacity-50 bg-gray-50' : ''}`}>
             <label className={`text-sm font-bold mb-2 block ${formData.claimInformation?.hasOtherHealthBenefitPlan === false ? 'text-gray-400' : 'text-[#c41e3a]'}`}>
               9a. OTHER INSURED'S POLICY OR GROUP NUMBER
               {formData.claimInformation?.hasOtherHealthBenefitPlan === false && <span className="ml-2 text-xs text-gray-500">(Disabled - No other health benefit plan)</span>}
@@ -1164,7 +1147,7 @@ export default function ClaimForm({ environment, credentials, onEnvironmentChang
           </div>
 
           {/* Box 9b */}
-          <div className={`border-b border-gray-300 pb-3 ${formData.claimInformation?.hasOtherHealthBenefitPlan === false ? 'opacity-50 bg-gray-50' : ''}`}>
+          <div className={`pb-3 ${formData.claimInformation?.hasOtherHealthBenefitPlan === false ? 'opacity-50 bg-gray-50' : ''}`}>
             <label className={`text-sm font-bold mb-2 block ${formData.claimInformation?.hasOtherHealthBenefitPlan === false ? 'text-gray-400' : 'text-[#c41e3a]'}`}>
               9b. RESERVED FOR NUCC USE
             </label>
@@ -1172,7 +1155,7 @@ export default function ClaimForm({ environment, credentials, onEnvironmentChang
           </div>
 
           {/* Box 9c */}
-          <div className={`border-b border-gray-300 pb-3 ${formData.claimInformation?.hasOtherHealthBenefitPlan === false ? 'opacity-50 bg-gray-50' : ''}`}>
+          <div className={`pb-3 ${formData.claimInformation?.hasOtherHealthBenefitPlan === false ? 'opacity-50 bg-gray-50' : ''}`}>
             <label className={`text-sm font-bold mb-2 block ${formData.claimInformation?.hasOtherHealthBenefitPlan === false ? 'text-gray-400' : 'text-[#c41e3a]'}`}>
               9c. RESERVED FOR NUCC USE
             </label>
@@ -1180,7 +1163,7 @@ export default function ClaimForm({ environment, credentials, onEnvironmentChang
           </div>
 
           {/* Box 9d */}
-          <div className={`border-b border-gray-300 pb-3 ${formData.claimInformation?.hasOtherHealthBenefitPlan === false ? 'opacity-50 bg-gray-50' : ''}`}>
+          <div className={`pb-3 ${formData.claimInformation?.hasOtherHealthBenefitPlan === false ? 'opacity-50 bg-gray-50' : ''}`}>
             <label className={`text-sm font-bold mb-2 block ${formData.claimInformation?.hasOtherHealthBenefitPlan === false ? 'text-gray-400' : 'text-[#c41e3a]'}`}>
               9d. INSURANCE PLAN NAME OR PROGRAM NAME
               {formData.claimInformation?.hasOtherHealthBenefitPlan === false && <span className="ml-2 text-xs text-gray-500">(Disabled - No other health benefit plan)</span>}
@@ -1193,7 +1176,7 @@ export default function ClaimForm({ environment, credentials, onEnvironmentChang
           </div>
 
           {/* Box 10 */}
-          <div className="border-b border-gray-300 pb-3">
+          <div className="pb-3">
             <label className="text-sm font-bold text-[#c41e3a] mb-2 block">10. IS PATIENT'S CONDITION RELATED TO:</label>
             <div className="space-y-2">
               <div className="flex items-center gap-4">
@@ -1257,32 +1240,50 @@ export default function ClaimForm({ environment, credentials, onEnvironmentChang
           </div>
 
           {/* Box 10d */}
-          <div className="border-b border-gray-300 pb-3">
+          <div className="pb-3">
             <label className="text-sm font-bold text-[#c41e3a] mb-2 block">10d. CLAIM CODES (Designated by NUCC)</label>
             <input type="text" className="w-full p-2 border rounded" />
           </div>
 
           {/* Box 12 */}
-          <div className="border-b border-gray-300 pb-3">
+          <div className="pb-3">
             <label className="text-sm font-bold text-[#c41e3a] mb-2 block">
               12. PATIENT'S OR AUTHORIZED PERSON'S SIGNATURE I authorize the release of any medical or other information necessary to process this claim. I also request payment of government benefits either to myself or to the party who accepts assignment below.
             </label>
             <div className="grid grid-cols-2 gap-4 mt-2">
-              <input type="text" placeholder="Signature" className="p-2 border rounded" />
-              <input type="date" placeholder="Date" className="p-2 border rounded" />
+              <input
+                type="text"
+                value={patientSignature}
+                onChange={(e) => setPatientSignature(e.target.value)}
+                placeholder="Signature"
+                className="p-2 border rounded"
+              />
+              <input
+                type="date"
+                value={patientSignatureDate}
+                onChange={(e) => setPatientSignatureDate(e.target.value)}
+                placeholder="Date"
+                className="p-2 border rounded"
+              />
             </div>
           </div>
 
           {/* Box 13 */}
-          <div className="border-b border-gray-300 pb-3">
+          <div className="pb-3">
             <label className="text-sm font-bold text-[#c41e3a] mb-2 block">
               13. INSURED'S OR AUTHORIZED PERSON'S SIGNATURE I authorize payment of medical benefits to the undersigned physician or supplier for services described below.
             </label>
-            <input type="text" placeholder="Signature" className="w-full p-2 border rounded mt-2" />
+            <input
+              type="text"
+              value={authorizedSignature}
+              onChange={(e) => setAuthorizedSignature(e.target.value)}
+              placeholder="Signature"
+              className="w-full p-2 border rounded mt-2"
+            />
           </div>
 
           {/* Box 14 */}
-          <div className="border-b border-gray-300 pb-3">
+          <div className="pb-3">
             <label className="text-sm font-bold text-[#c41e3a] mb-2 block">14. DATE OF CURRENT ILLNESS, INJURY, or PREGNANCY (LMP)</label>
             <div className="flex items-center gap-4">
               <div className="flex items-center gap-2">
@@ -1298,7 +1299,7 @@ export default function ClaimForm({ environment, credentials, onEnvironmentChang
           </div>
 
           {/* Box 15 */}
-          <div className="border-b border-gray-300 pb-3">
+          <div className="pb-3">
             <label className="text-sm font-bold text-[#c41e3a] mb-2 block">15. OTHER DATE</label>
             <div className="flex items-center gap-4">
               <div className="flex items-center gap-2">
@@ -1314,7 +1315,7 @@ export default function ClaimForm({ environment, credentials, onEnvironmentChang
           </div>
 
           {/* Box 16 */}
-          <div className="border-b border-gray-300 pb-3">
+          <div className="pb-3">
             <label className="text-sm font-bold text-[#c41e3a] mb-2 block">16. Dates patient unable to work in current occupation</label>
             <div className="flex items-center gap-4">
               <div className="flex items-center gap-2">
@@ -1339,7 +1340,7 @@ export default function ClaimForm({ environment, credentials, onEnvironmentChang
           </div>
 
           {/* Box 17 */}
-          <div className="border-b border-gray-300 pb-3">
+          <div className="pb-3">
             <label className="text-sm font-bold text-[#c41e3a] mb-2 block">17. NAME OF REFERRING PROVIDER OR OTHER SOURCE</label>
             <input
               type="text"
@@ -1350,7 +1351,7 @@ export default function ClaimForm({ environment, credentials, onEnvironmentChang
           </div>
 
           {/* Box 17a */}
-          <div className="border-b border-gray-300 pb-3">
+          <div className="pb-3">
             <label className="text-sm font-bold text-[#c41e3a] mb-2 block">17a. NPI</label>
             <input
               type="text"
@@ -1362,13 +1363,13 @@ export default function ClaimForm({ environment, credentials, onEnvironmentChang
           </div>
 
           {/* Box 17b */}
-          <div className="border-b border-gray-300 pb-3">
+          <div className="pb-3">
             <label className="text-sm font-bold text-[#c41e3a] mb-2 block">17b. NPI</label>
             <input type="text" maxLength={10} className="w-full p-2 border rounded" />
           </div>
 
           {/* Box 18 */}
-          <div className="border-b border-gray-300 pb-3">
+          <div className="pb-3">
             <label className="text-sm font-bold text-[#c41e3a] mb-2 block">18. Hospitalization Dates Related to Current Services</label>
             <div className="flex items-center gap-4">
               <div className="flex items-center gap-2">
@@ -1393,13 +1394,13 @@ export default function ClaimForm({ environment, credentials, onEnvironmentChang
           </div>
 
           {/* Box 19 */}
-          <div className="border-b border-gray-300 pb-3">
+          <div className="pb-3">
             <label className="text-sm font-bold text-[#c41e3a] mb-2 block">19. ADDITIONAL CLAIM INFORMATION (Designated by NUCC)</label>
             <input type="text" className="w-full p-2 border rounded" />
           </div>
 
           {/* Box 20 */}
-          <div className="border-b border-gray-300 pb-3">
+          <div className="pb-3">
             <label className="text-sm font-bold text-[#c41e3a] mb-2 block">20. OUTSIDE LAB?</label>
             <div className="flex items-center gap-4">
               <div className="flex gap-4">
@@ -1455,7 +1456,7 @@ export default function ClaimForm({ environment, credentials, onEnvironmentChang
           </div>
 
           {/* Box 21 */}
-          <div className="border-b border-gray-300 pb-3">
+          <div className="pb-3">
             <label className="text-sm font-bold text-[#c41e3a] mb-2 block">21. DIAGNOSIS OR NATURE OF ILLNESS OR INJURY Relate A-L to service line below (24E)</label>
             <div className="grid grid-cols-3 gap-4">
               {[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11].map(i => (
@@ -1473,7 +1474,7 @@ export default function ClaimForm({ environment, credentials, onEnvironmentChang
           </div>
 
           {/* Box 22 */}
-          <div className="border-b border-gray-300 pb-3">
+          <div className="pb-3">
             <label className="text-sm font-bold text-[#c41e3a] mb-2 block">22. RESUBMISSION CODE</label>
             <div className="grid grid-cols-2 gap-4">
               <input type="text" placeholder="Resubmission Code" className="p-2 border rounded" />
@@ -1482,7 +1483,7 @@ export default function ClaimForm({ environment, credentials, onEnvironmentChang
           </div>
 
           {/* Box 23 */}
-          <div className="border-b border-gray-300 pb-3">
+          <div className="pb-3">
             <label className="text-sm font-bold text-[#c41e3a] mb-2 block">23. PRIOR AUTHORIZATION NUMBER</label>
             <input
               type="text"
@@ -1498,159 +1499,441 @@ export default function ClaimForm({ environment, credentials, onEnvironmentChang
           </div>
 
           {/* Box 24 - Service Lines */}
-          <div className="border-b border-gray-300 pb-3">
+          <div className="pb-3">
             <label className="text-sm font-bold text-[#c41e3a] mb-2 block">
-              24. A. DATE(S) OF SERVICE | B. PLACE OF SERVICE | C. EMG | D. PROCEDURES, SERVICES, OR SUPPLIES (Explain Unusual Circumstances) | E. DIAGNOSIS POINTER | F. $ CHARGES | G. DAYS OR UNITS | H. EPSDT Family Plan | I. ID. QUAL | J. RENDERING PROVIDER ID. #
+              24. Services
             </label>
-            <div className="overflow-x-auto">
-              <table className="w-full border-collapse mt-2">
-                <thead>
-                  <tr className="bg-gray-100">
-                    <th className="border p-2 text-xs text-left">From/To MM DD YY</th>
-                    <th className="border p-2 text-xs text-left">B</th>
-                    <th className="border p-2 text-xs text-left">C</th>
-                    <th className="border p-2 text-xs text-left">CPT/HCPCS MODIFIER</th>
-                    <th className="border p-2 text-xs text-left">E</th>
-                    <th className="border p-2 text-xs text-left">F</th>
-                    <th className="border p-2 text-xs text-left">G</th>
-                    <th className="border p-2 text-xs text-left">H</th>
-                    <th className="border p-2 text-xs text-left">I</th>
-                    <th className="border p-2 text-xs text-left">J (NPI)</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {[0, 1, 2, 3, 4, 5].map(i => {
-                    const line = serviceLines[i];
-                    return (
-                      <tr key={i}>
-                        <td className="border p-1">
-                          <input
-                            type="date"
-                            value={line?.serviceDate ? formatDateForInput(line.serviceDate) : ''}
-                            onChange={(e) => {
-                              if (!line) {
-                                addServiceLine();
-                                setTimeout(() => updateServiceLine(i, 'serviceDate', e.target.value), 0);
-                              } else {
-                                updateServiceLine(i, 'serviceDate', e.target.value);
+            <div className="space-y-3 mt-3">
+              {effectiveServiceLines.map((line, index) => (
+                <div key={index} className="border border-gray-300 rounded p-3 bg-white relative">
+                  {effectiveServiceLines.length > 1 && (
+                    <button
+                      type="button"
+                      onClick={() => removeServiceLine(index)}
+                      className="absolute top-2 right-2 text-gray-400 hover:text-gray-600 text-xl leading-none"
+                      aria-label="Remove service line"
+                    >
+                      ×
+                    </button>
+                  )}
+                  
+                  {/* Row 1: Dates, Place, EMG, CPT/HCPCS */}
+                  <div className="grid grid-cols-12 gap-2 mb-2">
+                    {/* a. FROM */}
+                    <div className="col-span-6 sm:col-span-2" style={{ maxWidth: 'calc(100% - 20px)' }}>
+                      <label className="text-xs font-semibold text-[#c41e3a] block mb-1 flex items-center gap-1">
+                        a. FROM
+                        <div className="relative group inline-block">
+                          <span className="text-gray-400 cursor-help text-xs">ⓘ</span>
+                          <div className="absolute left-0 bottom-full mb-2 hidden group-hover:block z-10 w-64 p-2 bg-gray-900 text-white text-xs rounded shadow-lg">
+                            <div className="font-semibold mb-1">Date of Service (FROM)</div>
+                            <div>The beginning date when the service was provided to the patient.</div>
+                            <div className="absolute top-full left-2 w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-gray-900"></div>
+                          </div>
+                        </div>
+                      </label>
+                      <input
+                        type="date"
+                        value={(() => {
+                          const dateStr = line.serviceDate || '';
+                          if (!dateStr) return '';
+                          const digits = dateStr.replace(/\D/g, '');
+                          if (digits.length === 8) {
+                            // YYYYMMDD format - convert to YYYY-MM-DD for date picker
+                            return `${digits.substring(0, 4)}-${digits.substring(4, 6)}-${digits.substring(6, 8)}`;
+                          }
+                          if (digits.length === 6) {
+                            // MMDDYY format - convert to YYYY-MM-DD (assuming 20XX)
+                            const year = `20${digits.substring(4, 6)}`;
+                            const month = digits.substring(0, 2);
+                            const day = digits.substring(2, 4);
+                            return `${year}-${month}-${day}`;
+                          }
+                          return '';
+                        })()}
+                        onChange={(e) => {
+                          const dateValue = e.target.value;
+                          if (dateValue) {
+                            // Convert YYYY-MM-DD to YYYYMMDD for API
+                            const apiDate = dateValue.replace(/-/g, '');
+                            const sl = [...effectiveServiceLines];
+                            sl[index] = {
+                              ...sl[index],
+                              serviceDate: apiDate
+                            };
+                            updateField(['claimInformation', 'serviceLines'], sl);
+                          } else {
+                            const sl = [...effectiveServiceLines];
+                            sl[index] = {
+                              ...sl[index],
+                              serviceDate: ''
+                            };
+                            updateField(['claimInformation', 'serviceLines'], sl);
+                          }
+                        }}
+                        className="w-full px-1.5 py-1.5 border rounded text-sm"
+                      />
+                    </div>
+
+                    {/* a. TO */}
+                    <div className="col-span-6 sm:col-span-2" style={{ maxWidth: 'calc(100% - 20px)' }}>
+                      <label className="text-xs font-semibold text-[#c41e3a] block mb-1 flex items-center gap-1">
+                        TO
+                        <div className="relative group inline-block">
+                          <span className="text-gray-400 cursor-help text-xs">ⓘ</span>
+                          <div className="absolute left-0 bottom-full mb-2 hidden group-hover:block z-10 w-64 p-2 bg-gray-900 text-white text-xs rounded shadow-lg">
+                            <div className="font-semibold mb-1">Date of Service (TO)</div>
+                            <div>The ending date when the service was provided. Leave blank if same as FROM.</div>
+                            <div className="absolute top-full left-2 w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-gray-900"></div>
+                          </div>
+                        </div>
+                      </label>
+                      <input
+                        type="date"
+                        value={(() => {
+                          const dateStr = line.serviceDateEnd || '';
+                          if (!dateStr) return '';
+                          const digits = dateStr.replace(/\D/g, '');
+                          if (digits.length === 8) {
+                            // YYYYMMDD format - convert to YYYY-MM-DD for date picker
+                            return `${digits.substring(0, 4)}-${digits.substring(4, 6)}-${digits.substring(6, 8)}`;
+                          }
+                          if (digits.length === 6) {
+                            // MMDDYY format - convert to YYYY-MM-DD (assuming 20XX)
+                            const year = `20${digits.substring(4, 6)}`;
+                            const month = digits.substring(0, 2);
+                            const day = digits.substring(2, 4);
+                            return `${year}-${month}-${day}`;
+                          }
+                          return '';
+                        })()}
+                        onChange={(e) => {
+                          const dateValue = e.target.value;
+                          if (dateValue) {
+                            // Convert YYYY-MM-DD to YYYYMMDD for API
+                            const apiDate = dateValue.replace(/-/g, '');
+                            const sl = [...effectiveServiceLines];
+                            sl[index] = {
+                              ...sl[index],
+                              serviceDateEnd: apiDate
+                            };
+                            updateField(['claimInformation', 'serviceLines'], sl);
+                          } else {
+                            const sl = [...effectiveServiceLines];
+                            sl[index] = {
+                              ...sl[index],
+                              serviceDateEnd: ''
+                            };
+                            updateField(['claimInformation', 'serviceLines'], sl);
+                          }
+                        }}
+                        className="w-full px-1.5 py-1.5 border rounded text-sm"
+                      />
+                    </div>
+
+                    {/* b. Place of Service */}
+                    <div className="col-span-3 sm:col-span-1">
+                      <label className="text-xs font-semibold text-[#c41e3a] block mb-1 flex items-center gap-1">
+                        b. POS
+                        <div className="relative group inline-block">
+                          <span className="text-gray-400 cursor-help text-xs">ⓘ</span>
+                          <div className="absolute left-0 bottom-full mb-2 hidden group-hover:block z-10 w-64 p-2 bg-gray-900 text-white text-xs rounded shadow-lg">
+                            <div className="font-semibold mb-1">Place of Service</div>
+                            <div>2-digit code indicating where the service was performed (e.g., 11=Office, 21=Inpatient Hospital).</div>
+                            <div className="absolute top-full left-2 w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-gray-900"></div>
+                          </div>
+                        </div>
+                      </label>
+                      <input
+                        type="text"
+                        value={line.professionalService?.placeOfServiceCode || formData.claimInformation?.placeOfServiceCode || '10'}
+                        onChange={(e) => {
+                          const value = e.target.value.replace(/\D/g, '').slice(0, 2);
+                          updateServiceLine(index, 'professionalService.placeOfServiceCode', value);
+                        }}
+                        placeholder="##"
+                        maxLength={2}
+                        className="w-full p-1.5 border rounded text-sm text-center"
+                      />
+                    </div>
+
+                    {/* c. EMG */}
+                    <div className="col-span-3 sm:col-span-1">
+                      <label className="text-xs font-semibold text-[#c41e3a] block mb-1 flex items-center gap-1">
+                        c. EMG
+                        <div className="relative group inline-block">
+                          <span className="text-gray-400 cursor-help text-xs">ⓘ</span>
+                          <div className="absolute left-0 bottom-full mb-2 hidden group-hover:block z-10 w-64 p-2 bg-gray-900 text-white text-xs rounded shadow-lg">
+                            <div className="font-semibold mb-1">Emergency Indicator</div>
+                            <div>Check if service was provided in an emergency situation.</div>
+                            <div className="absolute top-full left-2 w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-gray-900"></div>
+                          </div>
+                        </div>
+                      </label>
+                      <div className="flex items-center justify-center h-9">
+                        <input
+                          type="checkbox"
+                          checked={(() => {
+                            const desc = line.professionalService?.description || '';
+                            return desc.includes('EMG:Y') || desc.includes('EMG:1');
+                          })()}
+                          onChange={(e) => {
+                            const sl = [...effectiveServiceLines];
+                            const currentDesc = sl[index].professionalService?.description || '';
+                            let newDesc = currentDesc.replace(/EMG:[Y1]/g, '').trim();
+                            if (e.target.checked) {
+                              newDesc = newDesc ? `${newDesc} EMG:Y` : 'EMG:Y';
+                            }
+                            sl[index] = {
+                              ...sl[index],
+                              professionalService: {
+                                ...sl[index].professionalService,
+                                description: newDesc || undefined
                               }
-                            }}
-                            className="w-full p-1 border rounded text-sm"
-                          />
-                        </td>
-                        <td className="border p-1">
-                          <input
-                            type="text"
-                            value={line?.professionalService?.placeOfServiceCode || formData.claimInformation?.placeOfServiceCode || ''}
-                            onChange={(e) => {
-                              if (!line) {
-                                addServiceLine();
-                                setTimeout(() => updateServiceLine(i, 'professionalService.placeOfServiceCode', e.target.value), 0);
-                              } else {
-                                updateServiceLine(i, 'professionalService.placeOfServiceCode', e.target.value);
+                            };
+                            updateField(['claimInformation', 'serviceLines'], sl);
+                          }}
+                          className="w-4 h-4 text-[#9e32e2] border-gray-300 rounded focus:ring-[#9e32e2]"
+                        />
+                      </div>
+                    </div>
+
+                    {/* d. CPT/HCPCS */}
+                    <div className="col-span-6 sm:col-span-3">
+                      <label className="text-xs font-semibold text-[#c41e3a] block mb-1 flex items-center gap-1">
+                        d. CPT/HCPCS
+                        <div className="relative group inline-block">
+                          <span className="text-gray-400 cursor-help text-xs">ⓘ</span>
+                          <div className="absolute left-0 bottom-full mb-2 hidden group-hover:block z-10 w-64 p-2 bg-gray-900 text-white text-xs rounded shadow-lg">
+                            <div className="font-semibold mb-1">Procedure Code</div>
+                            <div>The CPT or HCPCS code identifying the medical procedure or service provided.</div>
+                            <div className="absolute top-full left-2 w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-gray-900"></div>
+                          </div>
+                        </div>
+                      </label>
+                      <input
+                        type="text"
+                        value={line.professionalService?.procedureCode || ''}
+                        onChange={(e) => {
+                          const value = e.target.value.toUpperCase().slice(0, 5);
+                          updateServiceLine(index, 'professionalService.procedureCode', value);
+                        }}
+                        placeholder="Code"
+                        maxLength={5}
+                        className="w-full p-1.5 border rounded text-sm"
+                      />
+                    </div>
+
+                    {/* d. Modifier */}
+                    <div className="col-span-6 sm:col-span-1">
+                      <label className="text-xs font-semibold text-[#c41e3a] block mb-1 flex items-center gap-1">
+                        Modifier
+                        <div className="relative group inline-block">
+                          <span className="text-gray-400 cursor-help text-xs">ⓘ</span>
+                          <div className="absolute left-0 bottom-full mb-2 hidden group-hover:block z-10 w-64 p-2 bg-gray-900 text-white text-xs rounded shadow-lg">
+                            <div className="font-semibold mb-1">Procedure Modifier</div>
+                            <div>2-digit code that provides additional information about the procedure performed.</div>
+                            <div className="absolute top-full left-2 w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-gray-900"></div>
+                          </div>
+                        </div>
+                      </label>
+                      <select
+                        value={line.professionalService?.procedureModifiers?.[0] || ''}
+                        onChange={(e) => {
+                          const value = e.target.value;
+                          const modifiers = value ? [value] : [];
+                          const sl = [...effectiveServiceLines];
+                          sl[index] = {
+                            ...sl[index],
+                            professionalService: {
+                              ...sl[index].professionalService,
+                              procedureModifiers: modifiers.length > 0 ? modifiers : undefined
+                            }
+                          };
+                          updateField(['claimInformation', 'serviceLines'], sl);
+                        }}
+                        className="w-full p-1.5 border rounded text-sm"
+                      >
+                        <option value="">-</option>
+                        <option value="95">95</option>
+                        <option value="RR">RR</option>
+                      </select>
+                    </div>
+
+                    {/* e. Diagnosis Pointer */}
+                    <div className="col-span-6 sm:col-span-2">
+                      <label className="text-xs font-semibold text-[#c41e3a] block mb-1 flex items-center gap-1">
+                        e. Dx
+                        <div className="relative group inline-block">
+                          <span className="text-gray-400 cursor-help text-xs">ⓘ</span>
+                          <div className="absolute left-0 bottom-full mb-2 hidden group-hover:block z-10 w-64 p-2 bg-gray-900 text-white text-xs rounded shadow-lg">
+                            <div className="font-semibold mb-1">Diagnosis Pointer</div>
+                            <div>Letter (A-L) linking this service to the corresponding diagnosis code in Box 21.</div>
+                            <div className="absolute top-full left-2 w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-gray-900"></div>
+                          </div>
+                        </div>
+                      </label>
+                      <select
+                        value={line.professionalService?.compositeDiagnosisCodePointers?.diagnosisCodePointers?.[0] || ''}
+                        onChange={(e) => {
+                          const sl = [...effectiveServiceLines];
+                          sl[index] = {
+                            ...sl[index],
+                            professionalService: {
+                              ...sl[index].professionalService,
+                              compositeDiagnosisCodePointers: {
+                                diagnosisCodePointers: [e.target.value]
                               }
-                            }}
-                            maxLength={2}
-                            className="w-full p-1 border rounded text-sm text-center"
-                          />
-                        </td>
-                        <td className="border p-1">
-                          <input type="text" maxLength={1} className="w-full p-1 border rounded text-sm text-center" />
-                        </td>
-                        <td className="border p-1">
-                          <input
-                            type="text"
-                            value={line?.professionalService?.procedureCode || ''}
-                            onChange={(e) => {
-                              if (!line) {
-                                addServiceLine();
-                                setTimeout(() => updateServiceLine(i, 'professionalService.procedureCode', e.target.value), 0);
-                              } else {
-                                updateServiceLine(i, 'professionalService.procedureCode', e.target.value);
-                              }
-                            }}
-                            className="w-full p-1 border rounded text-sm"
-                          />
-                        </td>
-                        <td className="border p-1">
-                          <input
-                            type="text"
-                            value={line?.professionalService?.compositeDiagnosisCodePointers?.diagnosisCodePointers?.[0] || ''}
-                            onChange={(e) => {
-                              if (line) {
-                                const sl = [...serviceLines];
-                                sl[i] = {
-                                  ...sl[i],
-                                  professionalService: {
-                                    ...sl[i].professionalService,
-                                    compositeDiagnosisCodePointers: {
-                                      diagnosisCodePointers: [e.target.value]
-                                    }
-                                  }
-                                };
-                                updateField(['claimInformation', 'serviceLines'], sl);
-                              }
-                            }}
-                            maxLength={1}
-                            className="w-full p-1 border rounded text-sm text-center"
-                          />
-                        </td>
-                        <td className="border p-1">
-                          <input
-                            type="number"
-                            step="0.01"
-                            value={line?.professionalService?.lineItemChargeAmount || ''}
-                            onChange={(e) => {
-                              if (!line) {
-                                addServiceLine();
-                                setTimeout(() => updateServiceLine(i, 'professionalService.lineItemChargeAmount', e.target.value), 0);
-                              } else {
-                                updateServiceLine(i, 'professionalService.lineItemChargeAmount', e.target.value);
-                              }
-                            }}
-                            className="w-full p-1 border rounded text-sm"
-                          />
-                        </td>
-                        <td className="border p-1">
-                          <input
-                            type="text"
-                            value={line?.professionalService?.serviceUnitCount || ''}
-                            onChange={(e) => {
-                              if (!line) {
-                                addServiceLine();
-                                setTimeout(() => updateServiceLine(i, 'professionalService.serviceUnitCount', e.target.value), 0);
-                              } else {
-                                updateServiceLine(i, 'professionalService.serviceUnitCount', e.target.value);
-                              }
-                            }}
-                            className="w-full p-1 border rounded text-sm text-center"
-                          />
-                        </td>
-                        <td className="border p-1">
-                          <input type="text" maxLength={2} className="w-full p-1 border rounded text-sm text-center" />
-                        </td>
-                        <td className="border p-1">
-                          <input type="text" maxLength={2} className="w-full p-1 border rounded text-sm text-center" />
-                        </td>
-                        <td className="border p-1">
-                          <input
-                            type="text"
-                            value={formData.rendering?.npi || formData.billing?.npi || ''}
-                            onChange={(e) => updateField(['rendering', 'npi'], e.target.value)}
-                            maxLength={10}
-                            className="w-full p-1 border rounded text-sm"
-                          />
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-              {serviceLines.length < 6 && (
+                            }
+                          };
+                          updateField(['claimInformation', 'serviceLines'], sl);
+                        }}
+                        className="w-full p-1.5 border rounded text-sm"
+                      >
+                        <option value="">-</option>
+                        {['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L'].map((letter, idx) => {
+                          const diagnosisCode = diagnoses[idx]?.diagnosisCode || '';
+                          const displayText = diagnosisCode ? `${letter} (${diagnosisCode})` : letter;
+                          return (
+                            <option key={letter} value={letter}>{displayText}</option>
+                          );
+                        })}
+                      </select>
+                    </div>
+                  </div>
+
+                  {/* Row 2: Charges, Units, EPSDT, ID Qual, Provider ID */}
+                  <div className="grid grid-cols-12 gap-2">
+                    {/* f. Charges */}
+                    <div className="col-span-6 sm:col-span-3">
+                      <label className="text-xs font-semibold text-[#c41e3a] block mb-1 flex items-center gap-1">
+                        f. Charges
+                        <div className="relative group inline-block">
+                          <span className="text-gray-400 cursor-help text-xs">ⓘ</span>
+                          <div className="absolute left-0 bottom-full mb-2 hidden group-hover:block z-10 w-64 p-2 bg-gray-900 text-white text-xs rounded shadow-lg">
+                            <div className="font-semibold mb-1">Line Item Charge Amount</div>
+                            <div>The total charge amount for this specific service line before any adjustments.</div>
+                            <div className="absolute top-full left-2 w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-gray-900"></div>
+                          </div>
+                        </div>
+                      </label>
+                      <div className="flex items-center gap-1">
+                        <span className="text-xs">$</span>
+                        <input
+                          type="text"
+                          value={line.professionalService?.lineItemChargeAmount ? formatCurrency(line.professionalService.lineItemChargeAmount) : ''}
+                          onChange={(e) => {
+                            const cents = parseCurrencyToCents(e.target.value);
+                            updateServiceLine(index, 'professionalService.lineItemChargeAmount', cents);
+                          }}
+                          placeholder="0.00"
+                          className="flex-1 p-1.5 border rounded text-sm"
+                        />
+                      </div>
+                    </div>
+
+                    {/* g. Days or Units */}
+                    <div className="col-span-6 sm:col-span-2">
+                      <label className="text-xs font-semibold text-[#c41e3a] block mb-1 flex items-center gap-1">
+                        g. Units
+                        <div className="relative group inline-block">
+                          <span className="text-gray-400 cursor-help text-xs">ⓘ</span>
+                          <div className="absolute left-0 bottom-full mb-2 hidden group-hover:block z-10 w-64 p-2 bg-gray-900 text-white text-xs rounded shadow-lg">
+                            <div className="font-semibold mb-1">Days or Units</div>
+                            <div>The number of times the service was performed or the number of days/units billed.</div>
+                            <div className="absolute top-full left-2 w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-gray-900"></div>
+                          </div>
+                        </div>
+                      </label>
+                      <input
+                        type="text"
+                        value={line.professionalService?.serviceUnitCount || ''}
+                        onChange={(e) => {
+                          const value = e.target.value.replace(/\D/g, '').slice(0, 2);
+                          updateServiceLine(index, 'professionalService.serviceUnitCount', value);
+                        }}
+                        placeholder="##"
+                        maxLength={2}
+                        className="w-full p-1.5 border rounded text-sm text-center"
+                      />
+                    </div>
+
+                    {/* h. EPSDT */}
+                    <div className="col-span-4 sm:col-span-1">
+                      <label className="text-xs font-semibold text-[#c41e3a] block mb-1 flex items-center gap-1">
+                        h. EP
+                        <div className="relative group inline-block">
+                          <span className="text-gray-400 cursor-help text-xs">ⓘ</span>
+                          <div className="absolute left-0 bottom-full mb-2 hidden group-hover:block z-10 w-64 p-2 bg-gray-900 text-white text-xs rounded shadow-lg">
+                            <div className="font-semibold mb-1">EPSDT Family Plan</div>
+                            <div>Early and Periodic Screening, Diagnostic and Treatment indicator for Medicaid patients.</div>
+                            <div className="absolute top-full left-2 w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-gray-900"></div>
+                          </div>
+                        </div>
+                      </label>
+                      <input
+                        type="text"
+                        maxLength={1}
+                        placeholder="?"
+                        className="w-full p-1.5 border rounded text-sm text-center"
+                      />
+                    </div>
+
+                    {/* i. ID. Qual */}
+                    <div className="col-span-4 sm:col-span-2">
+                      <label className="text-xs font-semibold text-[#c41e3a] block mb-1 flex items-center gap-1">
+                        i. Qual
+                        <div className="relative group inline-block">
+                          <span className="text-gray-400 cursor-help text-xs">ⓘ</span>
+                          <div className="absolute left-0 bottom-full mb-2 hidden group-hover:block z-10 w-64 p-2 bg-gray-900 text-white text-xs rounded shadow-lg">
+                            <div className="font-semibold mb-1">ID Qualifier</div>
+                            <div>Identifies the type of provider identifier being used (typically NPI - National Provider Identifier).</div>
+                            <div className="absolute top-full left-2 w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-gray-900"></div>
+                          </div>
+                        </div>
+                      </label>
+                      <select
+                        value="NPI"
+                        className="w-full p-1.5 border rounded text-sm bg-gray-50"
+                        disabled
+                      >
+                        <option value="NPI">NPI</option>
+                      </select>
+                    </div>
+
+                    {/* j. Rendering Provider ID */}
+                    <div className="col-span-12 sm:col-span-4">
+                      <label className="text-xs font-semibold text-[#c41e3a] block mb-1 flex items-center gap-1">
+                        j. Rendering Provider ID
+                        <div className="relative group inline-block">
+                          <span className="text-gray-400 cursor-help text-xs">ⓘ</span>
+                          <div className="absolute left-0 bottom-full mb-2 hidden group-hover:block z-10 w-64 p-2 bg-gray-900 text-white text-xs rounded shadow-lg">
+                            <div className="font-semibold mb-1">Rendering Provider NPI</div>
+                            <div>The National Provider Identifier for the healthcare professional who performed the service.</div>
+                            <div className="absolute top-full left-2 w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-gray-900"></div>
+                          </div>
+                        </div>
+                      </label>
+                      <input
+                        type="text"
+                        value={formData.rendering?.npi || ''}
+                        onChange={(e) => {
+                          const value = e.target.value.replace(/\D/g, '').slice(0, 10);
+                          updateField(['rendering', 'npi'], value);
+                        }}
+                        placeholder="NPI (10 digits)"
+                        maxLength={10}
+                        className="w-full p-1.5 border rounded text-sm"
+                      />
+                    </div>
+                  </div>
+                </div>
+              ))}
+              {effectiveServiceLines.length < 6 && (
                 <button
                   type="button"
                   onClick={addServiceLine}
-                  className="mt-2 px-4 py-2 bg-[#9e32e2] text-white rounded hover:bg-[#8a2bc9] text-sm"
+                  className="w-full px-3 py-2 bg-[#9e32e2] text-white rounded hover:bg-[#8a2bc9] text-sm font-semibold"
                 >
                   + Add Service Line
                 </button>
@@ -1659,7 +1942,7 @@ export default function ClaimForm({ environment, credentials, onEnvironmentChang
           </div>
 
           {/* Box 25 */}
-          <div className="border-b border-gray-300 pb-3">
+          <div className="pb-3">
             <label className="text-sm font-bold text-[#c41e3a] mb-2 block">25. FEDERAL TAX I.D. NUMBER</label>
             <div className="space-y-2">
               <div className="flex gap-4 mb-2">
@@ -1685,7 +1968,7 @@ export default function ClaimForm({ environment, credentials, onEnvironmentChang
                 <label className="flex items-center gap-2 cursor-pointer">
                   <input
                     type="checkbox"
-                    checked={formData.billing?.taxIdType === 'EIN'}
+                    checked={formData.billing?.taxIdType === 'EIN' || (!formData.billing?.taxIdType)}
                     onChange={(e) => {
                       if (e.target.checked) {
                         updateField(['billing', 'taxIdType'], 'EIN');
@@ -1703,44 +1986,52 @@ export default function ClaimForm({ environment, credentials, onEnvironmentChang
                 </label>
               </div>
               <div>
-                <input
-                  type="text"
-                  value={
-                    formData.billing?.employerId
-                      ? formData.billing?.taxIdType === 'SSN'
-                        ? formatSSN(formData.billing.employerId)
-                        : formData.billing?.taxIdType === 'EIN'
-                        ? formatEIN(formData.billing.employerId)
-                        : formData.billing.employerId
-                      : ''
-                  }
-                  onChange={(e) => {
-                    const digits = e.target.value.replace(/\D/g, '');
-                    // Limit to 9 digits
-                    const limited = digits.slice(0, 9);
-                    updateField(['billing', 'employerId'], limited);
-                  }}
-                  className={`w-full p-2 border rounded ${
-                    formData.billing?.taxIdType === 'SSN' && formData.billing?.employerId && !validateSSN(formData.billing.employerId)
-                      ? 'border-red-500'
-                      : formData.billing?.taxIdType === 'EIN' && formData.billing?.employerId && !validateEIN(formData.billing.employerId)
-                      ? 'border-red-500'
-                      : ''
-                  }`}
-                  placeholder={formData.billing?.taxIdType === 'SSN' ? 'XXX-XX-XXXX' : formData.billing?.taxIdType === 'EIN' ? 'XX-XXXXXXX' : 'Enter Tax ID'}
-                />
+                {(formData.billing?.taxIdType === 'EIN' || !formData.billing?.taxIdType) ? (
+                  <select
+                    value={formData.billing?.employerId || ''}
+                    onChange={(e) => {
+                      updateField(['billing', 'employerId'], e.target.value);
+                    }}
+                    className="w-full p-2 border rounded"
+                  >
+                    <option value="">Select EIN</option>
+                    <option value="994567305">99-4567305 (RHMG, PLLC)</option>
+                    <option value="394343101">39-4343101 (RHMG, LLC - NJ)</option>
+                    <option value="394724400">39-4724400 (Alexander Marsh, M.D., PC)</option>
+                  </select>
+                ) : (
+                  <input
+                    type="text"
+                    value={
+                      formData.billing?.employerId
+                        ? formData.billing?.taxIdType === 'SSN'
+                          ? formatSSN(formData.billing.employerId)
+                          : formData.billing.employerId
+                        : ''
+                    }
+                    onChange={(e) => {
+                      const digits = e.target.value.replace(/\D/g, '');
+                      // Limit to 9 digits
+                      const limited = digits.slice(0, 9);
+                      updateField(['billing', 'employerId'], limited);
+                    }}
+                    className={`w-full p-2 border rounded ${
+                      formData.billing?.taxIdType === 'SSN' && formData.billing?.employerId && !validateSSN(formData.billing.employerId)
+                        ? 'border-red-500'
+                        : ''
+                    }`}
+                    placeholder={formData.billing?.taxIdType === 'SSN' ? 'XXX-XX-XXXX' : 'Enter Tax ID'}
+                  />
+                )}
                 {formData.billing?.taxIdType === 'SSN' && formData.billing?.employerId && !validateSSN(formData.billing.employerId) && (
                   <p className="text-xs text-red-500 mt-1">SSN must be 9 digits</p>
-                )}
-                {formData.billing?.taxIdType === 'EIN' && formData.billing?.employerId && !validateEIN(formData.billing.employerId) && (
-                  <p className="text-xs text-red-500 mt-1">EIN must be 9 digits</p>
                 )}
               </div>
             </div>
           </div>
 
           {/* Box 26 */}
-          <div className="border-b border-gray-300 pb-3">
+          <div className="pb-3">
             <label className="text-sm font-bold text-[#c41e3a] mb-2 block">26. PATIENT'S ACCOUNT NO.</label>
             <input
               type="text"
@@ -1751,7 +2042,7 @@ export default function ClaimForm({ environment, credentials, onEnvironmentChang
           </div>
 
           {/* Box 27 */}
-          <div className="border-b border-gray-300 pb-3">
+          <div className="pb-3">
             <label className="text-sm font-bold text-[#c41e3a] mb-2 block">27. ACCEPT ASSIGNMENT?</label>
             <div className="flex gap-4">
               <label className="flex items-center gap-2 cursor-pointer">
@@ -1790,25 +2081,23 @@ export default function ClaimForm({ environment, credentials, onEnvironmentChang
           </div>
 
           {/* Box 28 */}
-          <div className="border-b border-gray-300 pb-3">
+          <div className="pb-3">
             <label className="text-sm font-bold text-[#c41e3a] mb-2 block">28. TOTAL CHARGE</label>
             <div className="flex items-center gap-2">
               <span className="text-sm">$</span>
               <input
                 type="text"
-                value={formData.claimInformation?.claimChargeAmount ? formatCurrency(formData.claimInformation.claimChargeAmount) : ''}
-                onChange={(e) => {
-                  const cents = parseCurrencyToCents(e.target.value);
-                  updateField(['claimInformation', 'claimChargeAmount'], cents);
-                }}
+                value={formData.claimInformation?.claimChargeAmount ? formatCurrency(formData.claimInformation.claimChargeAmount) : '0.00'}
+                readOnly
                 placeholder="0.00"
-                className="w-full p-2 border rounded"
+                className="w-full p-2 border rounded bg-gray-50 cursor-not-allowed"
+                title="Auto-calculated from service line charges"
               />
             </div>
           </div>
 
           {/* Box 29 */}
-          <div className="border-b border-gray-300 pb-3">
+          <div className="pb-3">
             <label className="text-sm font-bold text-[#c41e3a] mb-2 block">29. AMOUNT PAID</label>
             <div className="flex items-center gap-2">
               <span className="text-sm">$</span>
@@ -1826,22 +2115,34 @@ export default function ClaimForm({ environment, credentials, onEnvironmentChang
           </div>
 
           {/* Box 30 */}
-          <div className="border-b border-gray-300 pb-3">
+          <div className="pb-3">
             <label className="text-sm font-bold text-[#c41e3a] mb-2 block">30. Rsvd for NUCC Use</label>
             <div className="text-sm text-gray-500 italic">Reserved field</div>
           </div>
 
           {/* Box 31 */}
-          <div className="border-b border-gray-300 pb-3">
+          <div className="pb-3">
             <label className="text-sm font-bold text-[#c41e3a] mb-2 block">31. SIGNATURE OF PHYSICIAN OR SUPPLIER</label>
             <div className="grid grid-cols-2 gap-4 mt-2">
-              <input type="text" placeholder="Signature" className="p-2 border rounded" />
-              <input type="date" placeholder="Date" className="p-2 border rounded" />
+              <input
+                type="text"
+                value={physicianSignature}
+                onChange={(e) => setPhysicianSignature(e.target.value)}
+                placeholder="Signature"
+                className="p-2 border rounded"
+              />
+              <input
+                type="date"
+                value={physicianSignatureDate}
+                onChange={(e) => setPhysicianSignatureDate(e.target.value)}
+                placeholder="Date"
+                className="p-2 border rounded"
+              />
             </div>
           </div>
 
           {/* Box 32 */}
-          <div className="border-b border-gray-300 pb-3">
+          <div className="pb-3">
             <label className="text-sm font-bold text-[#c41e3a] mb-2 block">32. SERVICE FACILITY LOCATION INFORMATION</label>
             <div className="space-y-2">
               <input
@@ -1890,7 +2191,7 @@ export default function ClaimForm({ environment, credentials, onEnvironmentChang
               <input
                 type="text"
                 maxLength={10}
-                value={formData.claimInformation?.serviceFacilityLocation?.npi || formData.billing?.npi || ''}
+                value={formData.claimInformation?.serviceFacilityLocation?.npi || ''}
                 onChange={(e) => {
                   if (!formData.claimInformation?.serviceFacilityLocation) {
                     updateField(['claimInformation', 'serviceFacilityLocation'], {});
@@ -1904,7 +2205,7 @@ export default function ClaimForm({ environment, credentials, onEnvironmentChang
           </div>
 
           {/* Box 33 */}
-          <div className="border-b border-gray-300 pb-3">
+          <div className="pb-3">
             <label className="text-sm font-bold text-[#c41e3a] mb-2 block">33. BILLING PROVIDER INFO & PH #</label>
             <div className="space-y-2">
               <input

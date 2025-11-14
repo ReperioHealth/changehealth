@@ -462,9 +462,9 @@ export default function EligibilityDetails({ response }: Props) {
               <div key={idx} className="p-3 bg-blue-50 rounded border border-blue-200">
                 <div className="space-y-1">
                   {(entity.entityFirstname || entity.entityName) && (
-                    <p className="font-semibold text-gray-900">
-                      {entity.entityFirstname} {entity.entityName}
-                    </p>
+                <p className="font-semibold text-gray-900">
+                  {entity.entityFirstname} {entity.entityName}
+                </p>
                   )}
                   {entity.entityIdentifier && (
                     <p className="text-xs text-gray-600">Entity Identifier: {entity.entityIdentifier}</p>
@@ -496,7 +496,7 @@ export default function EligibilityDetails({ response }: Props) {
                   )}
                   {pcp.trailerLoopIdentifierCode && (
                     <p className="text-xs text-gray-500">Trailer Loop: {pcp.trailerLoopIdentifierCode}</p>
-                  )}
+                )}
                 </div>
               </div>
             );
@@ -548,23 +548,23 @@ export default function EligibilityDetails({ response }: Props) {
                     return (
                       <React.Fragment key={`${serviceKey}-${level}`}>
                         <tr className={idx % 2 === 0 ? 'bg-white' : 'bg-gray-50 hover:bg-gray-100'}>
-                          <td className="px-3 py-2 text-xs font-medium text-gray-900">
-                            {displayName}
-                          </td>
-                          <td className="px-3 py-2 text-xs text-gray-700">{level}</td>
-                          <td className="px-3 py-2 text-xs text-center font-semibold text-gray-900 border-l-2 border-gray-200">
-                            {networks.inNetwork?.annual ? formatCurrency(networks.inNetwork.annual.benefitAmount || 0) : '—'}
-                          </td>
-                          <td className="px-3 py-2 text-xs text-center font-semibold text-gray-900">
-                            {networks.inNetwork?.remaining ? formatCurrency(networks.inNetwork.remaining.benefitAmount || 0) : '—'}
-                          </td>
-                          <td className="px-3 py-2 text-xs text-center font-semibold text-gray-900 border-l-2 border-gray-200">
-                            {networks.outNetwork?.annual ? formatCurrency(networks.outNetwork.annual.benefitAmount || 0) : '—'}
-                          </td>
-                          <td className="px-3 py-2 text-xs text-center font-semibold text-gray-900">
-                            {networks.outNetwork?.remaining ? formatCurrency(networks.outNetwork.remaining.benefitAmount || 0) : '—'}
-                          </td>
-                        </tr>
+                      <td className="px-3 py-2 text-xs font-medium text-gray-900">
+                        {displayName}
+                      </td>
+                      <td className="px-3 py-2 text-xs text-gray-700">{level}</td>
+                      <td className="px-3 py-2 text-xs text-center font-semibold text-gray-900 border-l-2 border-gray-200">
+                        {networks.inNetwork?.annual ? formatCurrency(networks.inNetwork.annual.benefitAmount || 0) : '—'}
+                      </td>
+                      <td className="px-3 py-2 text-xs text-center font-semibold text-gray-900">
+                        {networks.inNetwork?.remaining ? formatCurrency(networks.inNetwork.remaining.benefitAmount || 0) : '—'}
+                      </td>
+                      <td className="px-3 py-2 text-xs text-center font-semibold text-gray-900 border-l-2 border-gray-200">
+                        {networks.outNetwork?.annual ? formatCurrency(networks.outNetwork.annual.benefitAmount || 0) : '—'}
+                      </td>
+                      <td className="px-3 py-2 text-xs text-center font-semibold text-gray-900">
+                        {networks.outNetwork?.remaining ? formatCurrency(networks.outNetwork.remaining.benefitAmount || 0) : '—'}
+                      </td>
+                    </tr>
                         {/* Additional details row */}
                         {allBenefits.some(b => 
                           b?.additionalInformation?.length > 0 || 
@@ -659,23 +659,23 @@ export default function EligibilityDetails({ response }: Props) {
                     return (
                       <React.Fragment key={`${serviceKey}-${level}`}>
                         <tr className={idx % 2 === 0 ? 'bg-white' : 'bg-gray-50 hover:bg-gray-100'}>
-                          <td className="px-3 py-2 text-xs font-medium text-gray-900">
-                            {displayName}
-                          </td>
-                          <td className="px-3 py-2 text-xs text-gray-700">{level}</td>
-                          <td className="px-3 py-2 text-xs text-center font-semibold text-gray-900 border-l-2 border-gray-200">
-                            {networks.inNetwork?.annual ? formatCurrency(networks.inNetwork.annual.benefitAmount || 0) : '—'}
-                          </td>
-                          <td className="px-3 py-2 text-xs text-center font-semibold text-gray-900">
-                            {networks.inNetwork?.remaining ? formatCurrency(networks.inNetwork.remaining.benefitAmount || 0) : '—'}
-                          </td>
-                          <td className="px-3 py-2 text-xs text-center font-semibold text-gray-900 border-l-2 border-gray-200">
-                            {networks.outNetwork?.annual ? formatCurrency(networks.outNetwork.annual.benefitAmount || 0) : '—'}
-                          </td>
-                          <td className="px-3 py-2 text-xs text-center font-semibold text-gray-900">
-                            {networks.outNetwork?.remaining ? formatCurrency(networks.outNetwork.remaining.benefitAmount || 0) : '—'}
-                          </td>
-                        </tr>
+                      <td className="px-3 py-2 text-xs font-medium text-gray-900">
+                        {displayName}
+                      </td>
+                      <td className="px-3 py-2 text-xs text-gray-700">{level}</td>
+                      <td className="px-3 py-2 text-xs text-center font-semibold text-gray-900 border-l-2 border-gray-200">
+                        {networks.inNetwork?.annual ? formatCurrency(networks.inNetwork.annual.benefitAmount || 0) : '—'}
+                      </td>
+                      <td className="px-3 py-2 text-xs text-center font-semibold text-gray-900">
+                        {networks.inNetwork?.remaining ? formatCurrency(networks.inNetwork.remaining.benefitAmount || 0) : '—'}
+                      </td>
+                      <td className="px-3 py-2 text-xs text-center font-semibold text-gray-900 border-l-2 border-gray-200">
+                        {networks.outNetwork?.annual ? formatCurrency(networks.outNetwork.annual.benefitAmount || 0) : '—'}
+                      </td>
+                      <td className="px-3 py-2 text-xs text-center font-semibold text-gray-900">
+                        {networks.outNetwork?.remaining ? formatCurrency(networks.outNetwork.remaining.benefitAmount || 0) : '—'}
+                      </td>
+                    </tr>
                         {allBenefits.some(b => 
                           b?.additionalInformation?.length > 0 || 
                           b?.eligibilityAdditionalInformation || 
@@ -762,28 +762,28 @@ export default function EligibilityDetails({ response }: Props) {
                   return (
                     <React.Fragment key={serviceKey}>
                       <tr className="hover:bg-gray-50">
-                        <td className="px-3 py-2 text-xs font-medium text-gray-900">
-                          {serviceNames.length > 50 ? serviceNames.substring(0, 50) + '...' : serviceNames || 'All Services'}
-                        </td>
-                        <td className="px-3 py-2 text-xs text-center font-semibold text-gray-900 border-l-2 border-gray-200">
-                          {inNetworkAmounts.length > 0 ? (
-                            <div className="space-y-0.5">
-                              {inNetworkAmounts.map((amt, i) => (
-                                <div key={i}>{amt}</div>
-                              ))}
-                            </div>
-                          ) : '—'}
-                        </td>
-                        <td className="px-3 py-2 text-xs text-center font-semibold text-gray-900 border-l-2 border-gray-200">
-                          {outNetworkAmounts.length > 0 ? (
-                            <div className="space-y-0.5">
-                              {outNetworkAmounts.map((amt, i) => (
-                                <div key={i}>{amt}</div>
-                              ))}
-                            </div>
-                          ) : '—'}
-                        </td>
-                      </tr>
+                      <td className="px-3 py-2 text-xs font-medium text-gray-900">
+                        {serviceNames.length > 50 ? serviceNames.substring(0, 50) + '...' : serviceNames || 'All Services'}
+                      </td>
+                      <td className="px-3 py-2 text-xs text-center font-semibold text-gray-900 border-l-2 border-gray-200">
+                        {inNetworkAmounts.length > 0 ? (
+                          <div className="space-y-0.5">
+                            {inNetworkAmounts.map((amt, i) => (
+                              <div key={i}>{amt}</div>
+                            ))}
+                          </div>
+                        ) : '—'}
+                      </td>
+                      <td className="px-3 py-2 text-xs text-center font-semibold text-gray-900 border-l-2 border-gray-200">
+                        {outNetworkAmounts.length > 0 ? (
+                          <div className="space-y-0.5">
+                            {outNetworkAmounts.map((amt, i) => (
+                              <div key={i}>{amt}</div>
+                            ))}
+                          </div>
+                        ) : '—'}
+                      </td>
+                    </tr>
                       {hasAdditionalInfo && (
                         <tr className="bg-gray-50">
                           <td colSpan={3} className="px-3 py-2 text-xs text-gray-600">
@@ -874,28 +874,28 @@ export default function EligibilityDetails({ response }: Props) {
                   return (
                     <React.Fragment key={serviceKey}>
                       <tr className="hover:bg-gray-50">
-                        <td className="px-3 py-2 text-xs font-medium text-gray-900">
-                          {serviceNames.length > 50 ? serviceNames.substring(0, 50) + '...' : serviceNames || 'All Services'}
-                        </td>
-                        <td className="px-3 py-2 text-xs text-center font-semibold text-gray-900 border-l-2 border-gray-200">
-                          {inNetworkPercents.length > 0 ? (
-                            <div className="space-y-0.5">
-                              {inNetworkPercents.map((pct, i) => (
-                                <div key={i}>{pct}</div>
-                              ))}
-                            </div>
-                          ) : '—'}
-                        </td>
-                        <td className="px-3 py-2 text-xs text-center font-semibold text-gray-900 border-l-2 border-gray-200">
-                          {outNetworkPercents.length > 0 ? (
-                            <div className="space-y-0.5">
-                              {outNetworkPercents.map((pct, i) => (
-                                <div key={i}>{pct}</div>
-                              ))}
-                            </div>
-                          ) : '—'}
-                        </td>
-                      </tr>
+                      <td className="px-3 py-2 text-xs font-medium text-gray-900">
+                        {serviceNames.length > 50 ? serviceNames.substring(0, 50) + '...' : serviceNames || 'All Services'}
+                      </td>
+                      <td className="px-3 py-2 text-xs text-center font-semibold text-gray-900 border-l-2 border-gray-200">
+                        {inNetworkPercents.length > 0 ? (
+                          <div className="space-y-0.5">
+                            {inNetworkPercents.map((pct, i) => (
+                              <div key={i}>{pct}</div>
+                            ))}
+                          </div>
+                        ) : '—'}
+                      </td>
+                      <td className="px-3 py-2 text-xs text-center font-semibold text-gray-900 border-l-2 border-gray-200">
+                        {outNetworkPercents.length > 0 ? (
+                          <div className="space-y-0.5">
+                            {outNetworkPercents.map((pct, i) => (
+                              <div key={i}>{pct}</div>
+                            ))}
+                          </div>
+                        ) : '—'}
+                      </td>
+                    </tr>
                       {hasAdditionalInfo && (
                         <tr className="bg-gray-50">
                           <td colSpan={3} className="px-3 py-2 text-xs text-gray-600">
@@ -952,14 +952,14 @@ export default function EligibilityDetails({ response }: Props) {
               return (
                 <div key={idx} className="p-3 bg-yellow-50 rounded border border-yellow-200">
                   <div className="space-y-1">
-                    <p className="font-medium text-gray-900">{entity.entityName || 'Unknown'}</p>
+                  <p className="font-medium text-gray-900">{entity.entityName || 'Unknown'}</p>
                     {entity.entityIdentifier && (
                       <p className="text-xs text-gray-600">Entity Identifier: {entity.entityIdentifier}</p>
                     )}
                     {entity.entityType && (
                       <p className="text-xs text-gray-600">Entity Type: {entity.entityType}</p>
                     )}
-                    {payor.serviceTypeCodes && payor.serviceTypeCodes.length > 0 && (
+                  {payor.serviceTypeCodes && payor.serviceTypeCodes.length > 0 && (
                       <div className="mt-2">
                         <p className="text-xs font-medium text-gray-700 mb-1">Services:</p>
                         <div className="flex flex-wrap gap-1">
@@ -1037,13 +1037,13 @@ export default function EligibilityDetails({ response }: Props) {
                     )}
                   </div>
                   {lim.inPlanNetworkIndicatorCode && (
-                    <span className={`ml-2 inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
-                      lim.inPlanNetworkIndicatorCode === 'Y' 
-                        ? 'bg-green-100 text-green-800' 
-                        : 'bg-red-100 text-red-800'
-                    }`}>
-                      {lim.inPlanNetworkIndicator === 'Yes' ? 'IN' : lim.inPlanNetworkIndicator === 'No' ? 'OUT' : 'N/A'}
-                    </span>
+                  <span className={`ml-2 inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
+                    lim.inPlanNetworkIndicatorCode === 'Y' 
+                      ? 'bg-green-100 text-green-800' 
+                      : 'bg-red-100 text-red-800'
+                  }`}>
+                    {lim.inPlanNetworkIndicator === 'Yes' ? 'IN' : lim.inPlanNetworkIndicator === 'No' ? 'OUT' : 'N/A'}
+                  </span>
                   )}
                 </div>
               </div>
