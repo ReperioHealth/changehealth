@@ -5,6 +5,26 @@ import ApiResponseModal from './ApiResponseModal';
 
 const STORAGE_KEY_PAYERS = 'optum-payers-list';
 
+// Hardcoded common payers for when API is unavailable
+const COMMON_PAYERS = [
+  { id: 'UHC', name: 'UnitedHealthcare' },
+  { id: 'CIGNA', name: 'Cigna' },
+  { id: 'AETNA', name: 'Aetna' },
+  { id: 'ANTHM', name: 'Anthem Blue Cross Blue Shield' },
+  { id: 'HUMANA', name: 'Humana' },
+  { id: 'MEDICARE', name: 'Medicare' },
+  { id: 'MEDICAID', name: 'Medicaid' },
+  { id: 'CAREFIRST', name: 'CareFirst' },
+  { id: 'KAISER', name: 'Kaiser Permanente' },
+  { id: 'TRICARE', name: 'Tricare' },
+  { id: 'HEALTHNET', name: 'Health Net' },
+  { id: 'MOLINA', name: 'Molina Healthcare' },
+  { id: 'CENTENE', name: 'Centene' },
+  { id: 'WELLCARE', name: 'WellCare' },
+  // Note: BCBS payer IDs are numeric and vary by state/plan (e.g., 00851 for Oregon Regence)
+  // Users will need to enter these manually or wait for the Payer List API access
+];
+
 interface Props {
   onSubmit: (data: EligibilityRequest) => void;
   loading: boolean;
@@ -273,10 +293,19 @@ export default function EligibilityForm({ onSubmit, loading, environment, creden
       
       <div className="space-y-4 border p-4 rounded">
         <h3 className="font-semibold">Payer</h3>
+        <div className="text-sm text-orange-600 bg-orange-50 p-3 rounded space-y-1">
+          <div>
+            <strong>⚠️ Blue Cross Blue Shield:</strong> BCBS uses numeric payer IDs (not letter codes) that vary by state and plan.
+          </div>
+          <div className="text-xs">
+            Examples: 00851 (BCBS Oregon/Regence), 00002 (BCBS Illinois). You'll need to manually enter the numeric code or wait for Payer List API access.
+          </div>
+        </div>
         <div className="space-y-2">
           {loadingPayers ? (
             <div className="text-sm text-gray-500">Loading payer list...</div>
           ) : allPayers.length > 0 ? (
+            // Use API-fetched payers if available
             <select
               required
               value={(() => {
@@ -314,39 +343,60 @@ export default function EligibilityForm({ onSubmit, loading, environment, creden
               })}
             </select>
           ) : (
+            // Use hardcoded common payers as fallback with manual entry option
             <>
-              <div className="flex gap-2">
-                <input
-                  required
-                  placeholder="Payer ID (e.g., UHC, CIGNA, AETNA)"
+              <div className="space-y-2">
+                <select
                   value={formData.tradingPartnerServiceId}
-                  onChange={(e) => setFormData({...formData, tradingPartnerServiceId: e.target.value})}
-                  className="flex-1 p-2 border rounded"
-                />
-                {payersError && (
+                  onChange={(e) => {
+                    if (e.target.value === '__MANUAL__') {
+                      setFormData({...formData, tradingPartnerServiceId: ''});
+                    } else {
+                      setFormData({...formData, tradingPartnerServiceId: e.target.value});
+                    }
+                  }}
+                  className="w-full p-2 border rounded"
+                >
+                  <option value="">Select a payer or enter manually below...</option>
+                  {COMMON_PAYERS.map((payer) => (
+                    <option key={payer.id} value={payer.id}>
+                      {payer.name} ({payer.id})
+                    </option>
+                  ))}
+                  <option value="__MANUAL__">--- Enter Payer ID Manually ---</option>
+                </select>
+                
+                <div className="flex gap-2 items-center">
+                  <label className="text-sm text-gray-600 whitespace-nowrap">Or enter manually:</label>
+                  <input
+                    required
+                    placeholder="Payer ID (e.g., UHC, 00851 for BCBS Oregon)"
+                    value={formData.tradingPartnerServiceId}
+                    onChange={(e) => setFormData({...formData, tradingPartnerServiceId: e.target.value})}
+                    className="flex-1 p-2 border rounded"
+                  />
+                </div>
+              </div>
+              {payersError && (
+                <div className="text-xs text-orange-600 space-y-1 mt-2">
+                  <div>Could not load full payer list: {payersError}</div>
+                  <div>Using common payers list with manual entry option.</div>
+                  {payersError.includes('401') && (
+                    <div className="text-red-600 font-semibold mt-1">
+                      Note: 401 Unauthorized suggests the credentials may not have permission to fetch all payers.
+                    </div>
+                  )}
                   <button
                     type="button"
                     onClick={() => {
                       setRetryCount(prev => prev + 1);
                       loadPayers(true); // Clear cache and retry
                     }}
-                    className="px-3 py-2 bg-blue-600 text-white text-sm rounded hover:bg-blue-700"
+                    className="px-3 py-2 bg-blue-600 text-white text-sm rounded hover:bg-blue-700 mt-2"
                     disabled={loadingPayers}
                   >
-                    {loadingPayers ? 'Loading...' : 'Retry'}
+                    {loadingPayers ? 'Loading...' : 'Retry Full List'}
                   </button>
-                )}
-              </div>
-              {payersError && (
-                <div className="text-xs text-orange-600 space-y-1">
-                  <div>Could not load payer list: {payersError}</div>
-                  <div>You can still enter a payer ID manually, or click Retry to try again.</div>
-                  {payersError.includes('401') && (
-                    <div className="text-red-600 font-semibold mt-1">
-                      Note: 401 Unauthorized suggests the credentials may not have permission to fetch all payers.
-                      The Payer List API may require different permissions than single payer lookup.
-                    </div>
-                  )}
                 </div>
               )}
             </>

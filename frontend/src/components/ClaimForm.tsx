@@ -150,11 +150,9 @@ export default function ClaimForm({ environment, credentials, onEnvironmentChang
   });
   
   // Local state for signature fields (not in API structure)
-  const [patientSignature, setPatientSignature] = useState('Signature on file');
-  const [patientSignatureDate, setPatientSignatureDate] = useState('');
-  const [authorizedSignature, setAuthorizedSignature] = useState('Signature on file');
-  const [physicianSignature, setPhysicianSignature] = useState('Signature on file');
-  const [physicianSignatureDate, setPhysicianSignatureDate] = useState('');
+  const [patientSignatureOnFile, setPatientSignatureOnFile] = useState(true);
+  const [authorizedSignatureOnFile, setAuthorizedSignatureOnFile] = useState(true);
+  const [physicianSignatureOnFile, setPhysicianSignatureOnFile] = useState(true);
 
   const [loading, setLoading] = useState(false);
   const [response, setResponse] = useState<ClaimResponse | null>(null);
@@ -176,11 +174,9 @@ export default function ClaimForm({ environment, credentials, onEnvironmentChang
     } as Partial<ClaimSubmissionRequest>['billing'];
     setFormData(initialData);
     // Reset signature fields
-    setPatientSignature('Signature on file');
-    setPatientSignatureDate('');
-    setAuthorizedSignature('Signature on file');
-    setPhysicianSignature('Signature on file');
-    setPhysicianSignatureDate('');
+    setPatientSignatureOnFile(true);
+    setAuthorizedSignatureOnFile(true);
+    setPhysicianSignatureOnFile(true);
     setResponse(null);
     setError(null);
   }, [environment]);
@@ -1247,39 +1243,30 @@ export default function ClaimForm({ environment, credentials, onEnvironmentChang
 
           {/* Box 12 */}
           <div className="pb-3">
-            <label className="text-sm font-bold text-[#c41e3a] mb-2 block">
-              12. PATIENT'S OR AUTHORIZED PERSON'S SIGNATURE I authorize the release of any medical or other information necessary to process this claim. I also request payment of government benefits either to myself or to the party who accepts assignment below.
+            <label className="text-sm font-bold text-[#c41e3a] mb-2 block">12. PATIENT'S OR AUTHORIZED PERSON'S SIGNATURE</label>
+            <label className="flex items-center gap-2 cursor-pointer mt-2">
+              <input
+                type="checkbox"
+                checked={patientSignatureOnFile}
+                onChange={(e) => setPatientSignatureOnFile(e.target.checked)}
+                className="w-4 h-4"
+              />
+              <span className="text-sm">Signature on File</span>
             </label>
-            <div className="grid grid-cols-2 gap-4 mt-2">
-              <input
-                type="text"
-                value={patientSignature}
-                onChange={(e) => setPatientSignature(e.target.value)}
-                placeholder="Signature"
-                className="p-2 border rounded"
-              />
-              <input
-                type="date"
-                value={patientSignatureDate}
-                onChange={(e) => setPatientSignatureDate(e.target.value)}
-                placeholder="Date"
-                className="p-2 border rounded"
-              />
-            </div>
           </div>
 
           {/* Box 13 */}
           <div className="pb-3">
-            <label className="text-sm font-bold text-[#c41e3a] mb-2 block">
-              13. INSURED'S OR AUTHORIZED PERSON'S SIGNATURE I authorize payment of medical benefits to the undersigned physician or supplier for services described below.
+            <label className="text-sm font-bold text-[#c41e3a] mb-2 block">13. INSURED'S OR AUTHORIZED PERSON'S SIGNATURE</label>
+            <label className="flex items-center gap-2 cursor-pointer mt-2">
+              <input
+                type="checkbox"
+                checked={authorizedSignatureOnFile}
+                onChange={(e) => setAuthorizedSignatureOnFile(e.target.checked)}
+                className="w-4 h-4"
+              />
+              <span className="text-sm">Signature on File</span>
             </label>
-            <input
-              type="text"
-              value={authorizedSignature}
-              onChange={(e) => setAuthorizedSignature(e.target.value)}
-              placeholder="Signature"
-              className="w-full p-2 border rounded mt-2"
-            />
           </div>
 
           {/* Box 14 */}
@@ -2123,22 +2110,15 @@ export default function ClaimForm({ environment, credentials, onEnvironmentChang
           {/* Box 31 */}
           <div className="pb-3">
             <label className="text-sm font-bold text-[#c41e3a] mb-2 block">31. SIGNATURE OF PHYSICIAN OR SUPPLIER</label>
-            <div className="grid grid-cols-2 gap-4 mt-2">
+            <label className="flex items-center gap-2 cursor-pointer mt-2">
               <input
-                type="text"
-                value={physicianSignature}
-                onChange={(e) => setPhysicianSignature(e.target.value)}
-                placeholder="Signature"
-                className="p-2 border rounded"
+                type="checkbox"
+                checked={physicianSignatureOnFile}
+                onChange={(e) => setPhysicianSignatureOnFile(e.target.checked)}
+                className="w-4 h-4"
               />
-              <input
-                type="date"
-                value={physicianSignatureDate}
-                onChange={(e) => setPhysicianSignatureDate(e.target.value)}
-                placeholder="Date"
-                className="p-2 border rounded"
-              />
-            </div>
+              <span className="text-sm">Signature on File</span>
+            </label>
           </div>
 
           {/* Box 32 */}
