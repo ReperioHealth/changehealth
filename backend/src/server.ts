@@ -12,6 +12,6 @@ app.use(express.json());
 app.use('/api/eligibility', eligibilityRoutes);
 app.use('/api/claims', claimsRoutes);
 
-const PORT = process.env.PORT || 3001;
+const PORT = process.env.PORT || 3002;
 app.listen(PORT, () => console.log(`Server on port ${PORT}`));
 

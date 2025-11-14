@@ -1,6 +1,6 @@
 import type { Credentials, EligibilityRequest, EligibilityResponse, Environment } from '../types/eligibility';
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001';
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3002';
 
 export async function checkEligibility(
   data: EligibilityRequest,

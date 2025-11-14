@@ -1,7 +1,7 @@
 import type { ClaimSubmissionRequest, ClaimResponse } from '../types/claims';
 import type { Credentials, Environment } from '../types/eligibility';
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001';
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3002';
 
 export async function validateClaim(
   data: ClaimSubmissionRequest,
