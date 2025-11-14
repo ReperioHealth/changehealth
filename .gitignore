@@ -35,3 +35,6 @@ Thumbs.db
 .cache/
 coverage/
 
+# Personal test data files
+matt.json
+travis.json
