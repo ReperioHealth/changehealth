@@ -7,6 +7,11 @@ function getBaseUrl(environment?: string): string {
     : 'https://apigw.optum.com';
 }
 
+// PayerList API always uses production endpoint
+function getPayerListBaseUrl(): string {
+  return 'https://apigw.optum.com';
+}
+
 interface Credentials {
   clientId: string;
   clientSecret: string;
@@ -106,136 +111,165 @@ export async function checkEligibility(requestData: any, credentials?: Credentia
   return response.data;
 }
 
-export async function lookupPayer(payerId: string, credentials?: Credentials, environment?: string) {
+/**
+ * Lookup a payer using PayerList v1 API
+ * NOTE: This function requires Payer Lookup API credentials (not Eligibility API credentials)
+ * Frontend builds the complete params, backend just proxies with authentication
+ */
+export async function lookupPayer(payerListParams: any, credentials?: Credentials, environment?: string) {
   const creds: Credentials = credentials || {
     clientId: process.env.OPTUM_CLIENT_ID!,
     clientSecret: process.env.OPTUM_CLIENT_SECRET!
   };
 
   if (!creds.clientId || !creds.clientSecret) {
-    throw new Error('API credentials required');
+    throw new Error('Payer Lookup API credentials required for PayerList v1 API');
   }
 
-  const baseUrl = getBaseUrl(environment);
-  // Try without scope first - payer list API might not require a scope
-  // If that fails, the route handler will retry with fallback credentials
+  const baseUrl = getPayerListBaseUrl(); // Always use prod for PayerList
   const token = await getAccessToken(creds, environment, undefined);
   
-  console.log('Looking up payer:', payerId);
-  console.log('Using environment:', environment || 'production');
-  console.log('Client ID (first 8 chars):', creds.clientId.substring(0, 8) + '...');
-  console.log('Payer lookup URL:', `${baseUrl}/medicalnetwork/payerlist/v1/payers`);
+  const optumApiUrl = `${baseUrl}/medicalnetwork/payerlist/v1/payers`;
   
-  try {
-    const response = await axios.get(
-      `${baseUrl}/medicalnetwork/payerlist/v1/payers`,
-      {
-        params: {
-          system: 'Gateway',
-          payerId: payerId,
-          wildcardSearch: 'No'
-        },
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        }
+  console.log('Looking up payer using PayerList v1 API:', optumApiUrl);
+  console.log('Request params (passed through unchanged):', JSON.stringify(payerListParams, null, 2));
+  
+  // Pass the params directly to Optum - no modifications
+  const response = await axios.get(
+    optumApiUrl,
+    {
+      params: payerListParams,
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      },
+      paramsSerializer: {
+        indexes: null // Don't use brackets for arrays
       }
-    );
+    }
+  );
 
-    return response.data;
-  } catch (error: any) {
-    console.error('Payer lookup API error:', error.response?.status, error.response?.statusText);
-    console.error('Error details:', JSON.stringify(error.response?.data, null, 2));
-    console.error('Request URL:', error.config?.url);
-    console.error('Request params:', JSON.stringify(error.config?.params, null, 2));
-    throw error;
-  }
+  console.log('✅ Payer lookup succeeded!');
+  console.log('Response status:', response.status);
+  console.log('Total matches:', response.data.total);
+  
+  // Return response with metadata about the actual Optum API call
+  return {
+    ...response.data,
+    _optumApiRequest: {
+      url: optumApiUrl,
+      method: 'GET',
+      params: payerListParams
+    }
+  };
 }
 
-export async function getAllPayers(credentials?: Credentials, environment?: string, options?: {
-  transactionType?: string[];
-  status?: string;
-  pageSize?: number;
-}) {
+/**
+ * Get all payers using PayerList v1 API
+ * NOTE: This function requires Payer Lookup API credentials (not Eligibility API credentials)
+ * Frontend builds the complete params, backend just proxies with authentication
+ */
+export async function getAllPayers(payerListParams: any, credentials?: Credentials, environment?: string) {
   const creds: Credentials = credentials || {
     clientId: process.env.OPTUM_CLIENT_ID!,
     clientSecret: process.env.OPTUM_CLIENT_SECRET!
   };
 
   if (!creds.clientId || !creds.clientSecret) {
-    throw new Error('API credentials required');
+    throw new Error('Payer Lookup API credentials required for PayerList v1 API');
   }
 
-  const baseUrl = getBaseUrl(environment);
+  const baseUrl = getPayerListBaseUrl(); // Always use prod for PayerList
   const token = await getAccessToken(creds, environment, undefined);
   
-  const allPayers: any[] = [];
-  let page = 1;
-  const pageSize = options?.pageSize || 100; // Fetch 100 at a time
-  let hasMore = true;
-
-  console.log('Fetching all payers for dropdown...');
-  console.log('Using environment:', environment || 'production');
-  console.log('Client ID (first 8 chars):', creds.clientId.substring(0, 8) + '...');
-  console.log('Client ID (full):', creds.clientId);
-  console.log('Transaction type filter:', options?.transactionType || 'all');
-  console.log('Status filter:', options?.status || 'all');
-
-  while (hasMore) {
-    try {
-      const params: any = {
-        system: 'Gateway',
-        page: page,
-        pageSize: pageSize,
-        sort: ['payerPlanName,asc']
-      };
-
-      // Only add filters if provided - try without filters first if they cause issues
-      if (options?.transactionType && options.transactionType.length > 0) {
-        params.transactionType = options.transactionType;
+  const optumApiUrl = `${baseUrl}/medicalnetwork/payerlist/v1/payers`;
+  
+  console.log('Calling PayerList API:', optumApiUrl);
+  console.log('Request params (passed through unchanged):', JSON.stringify(payerListParams, null, 2));
+  
+  // Pass the params directly to Optum - no modifications
+  const response = await axios.get(
+    optumApiUrl,
+    {
+      params: payerListParams,
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      },
+      paramsSerializer: {
+        indexes: null // Don't use brackets for arrays
       }
-
-      if (options?.status) {
-        params.status = options.status;
-      }
-
-      console.log(`Fetching page ${page} with params:`, JSON.stringify(params, null, 2));
-      console.log('Request URL:', `${baseUrl}/medicalnetwork/payerlist/v1/payers`);
-
-      const response = await axios.get(
-        `${baseUrl}/medicalnetwork/payerlist/v1/payers`,
-        {
-          params,
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json'
-          }
-        }
-      );
-
-      const data = response.data;
-      if (data.payers && data.payers.length > 0) {
-        allPayers.push(...data.payers);
-        console.log(`Fetched page ${page}: ${data.payers.length} payers (total so far: ${allPayers.length})`);
-        
-        // Check if there are more pages
-        const totalPages = Math.ceil((data.total || 0) / pageSize);
-        hasMore = page < totalPages;
-        page++;
-      } else {
-        hasMore = false;
-      }
-    } catch (error: any) {
-      console.error('Error fetching payers:', error.response?.status, error.response?.statusText);
-      console.error('Error details:', JSON.stringify(error.response?.data, null, 2));
-      throw error;
     }
+  );
+
+  console.log('✅ PayerList API call succeeded!');
+  console.log('Response status:', response.status);
+  console.log('Total payers:', response.data.total);
+  
+  // Return response with metadata about the actual Optum API call
+  return {
+    ...response.data,
+    _optumApiRequest: {
+      url: optumApiUrl,
+      method: 'GET',
+      params: payerListParams
+    }
+  };
+}
+
+/**
+ * Export payers list as CSV using PayerList v1 API /payers/export endpoint
+ * NOTE: This function requires Payer Lookup API credentials (not Eligibility API credentials)
+ * Returns CSV data as a string
+ */
+export async function exportPayerList(payerListParams: any, credentials?: Credentials, environment?: string) {
+  const creds: Credentials = credentials || {
+    clientId: process.env.OPTUM_CLIENT_ID!,
+    clientSecret: process.env.OPTUM_CLIENT_SECRET!
+  };
+
+  if (!creds.clientId || !creds.clientSecret) {
+    throw new Error('Payer Lookup API credentials required for PayerList v1 API');
   }
 
-  console.log(`✅ Fetched ${allPayers.length} total payers`);
+  const baseUrl = getPayerListBaseUrl(); // Always use prod for PayerList
+  const token = await getAccessToken(creds, environment, undefined);
+  
+  const optumApiUrl = `${baseUrl}/medicalnetwork/payerlist/v1/payers/export`;
+  
+  console.log('Calling PayerList Export API:', optumApiUrl);
+  console.log('Request params (passed through unchanged):', JSON.stringify(payerListParams, null, 2));
+  
+  // Pass the params directly to Optum - no modifications
+  const response = await axios.get(
+    optumApiUrl,
+    {
+      params: payerListParams,
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Accept': 'text/csv'
+      },
+      paramsSerializer: {
+        indexes: null // Don't use brackets for arrays (transactionType not transactionType[])
+      }
+    }
+  );
+
+  console.log('✅ PayerList Export API call succeeded!');
+  console.log('Response status:', response.status);
+  console.log('Response content-type:', response.headers['content-type']);
+  console.log('CSV data length:', typeof response.data === 'string' ? response.data.length : 'NOT A STRING');
+  console.log('CSV data type:', typeof response.data);
+  console.log('CSV first 500 chars:', typeof response.data === 'string' ? response.data.substring(0, 500) : 'N/A');
+  
+  // Return CSV data with metadata about the actual Optum API call
   return {
-    payers: allPayers,
-    total: allPayers.length
+    csv: response.data,
+    _optumApiRequest: {
+      url: optumApiUrl,
+      method: 'GET',
+      params: payerListParams
+    }
   };
 }
 

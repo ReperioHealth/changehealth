@@ -1,36 +1,17 @@
 import { useState, useEffect, useRef } from 'react';
-import { lookupPayer, getAllPayers, type PayerLookupResult, type Payer } from '../services/api';
+import { lookupPayer, getAllPayers, exportPayerList, parseCsvToPayers, type PayerLookupResult, type Payer } from '../services/api';
 import type { EligibilityRequest, Environment, Credentials } from '../types/eligibility';
 import ApiResponseModal from './ApiResponseModal';
 
 const STORAGE_KEY_PAYERS = 'optum-payers-list';
-
-// Hardcoded common payers for when API is unavailable
-const COMMON_PAYERS = [
-  { id: 'UHC', name: 'UnitedHealthcare' },
-  { id: 'CIGNA', name: 'Cigna' },
-  { id: 'AETNA', name: 'Aetna' },
-  { id: 'ANTHM', name: 'Anthem Blue Cross Blue Shield' },
-  { id: 'HUMANA', name: 'Humana' },
-  { id: 'MEDICARE', name: 'Medicare' },
-  { id: 'MEDICAID', name: 'Medicaid' },
-  { id: 'CAREFIRST', name: 'CareFirst' },
-  { id: 'KAISER', name: 'Kaiser Permanente' },
-  { id: 'TRICARE', name: 'Tricare' },
-  { id: 'HEALTHNET', name: 'Health Net' },
-  { id: 'MOLINA', name: 'Molina Healthcare' },
-  { id: 'CENTENE', name: 'Centene' },
-  { id: 'WELLCARE', name: 'WellCare' },
-  // Note: BCBS payer IDs are numeric and vary by state/plan (e.g., 00851 for Oregon Regence)
-  // Users will need to enter these manually or wait for the Payer List API access
-];
+const STORAGE_KEY_PAYERS_CSV = 'optum-payers-csv';
 
 interface Props {
-  onSubmit: (data: EligibilityRequest) => void;
+  onSubmit: (data: EligibilityRequest, alternatePayerIds?: string[]) => void;
   loading: boolean;
   environment: Environment;
-  credentials?: Credentials | null; // Payer lookup credentials
-  eligibilityCredentials?: Credentials | null; // Eligibility API credentials
+  credentials?: Credentials | null; // Payer Lookup API credentials (for PayerList v1 API)
+  eligibilityCredentials?: Credentials | null; // Eligibility API credentials (for Eligibility v3 API)
 }
 
 // Sandbox test data constants
@@ -71,12 +52,12 @@ export default function EligibilityForm({ onSubmit, loading, environment, creden
     loading: boolean;
     result: PayerLookupResult | null;
     error: string | null;
-    request: { payerId: string; environment: Environment; credentials?: Credentials } | null;
+    optumApiRequest: { url: string; method: string; params: any } | null;
   }>({
     loading: false,
     result: null,
     error: null,
-    request: null
+    optumApiRequest: null
   });
 
   const [showPayerModal, setShowPayerModal] = useState(false);
@@ -84,6 +65,13 @@ export default function EligibilityForm({ onSubmit, loading, environment, creden
   const [loadingPayers, setLoadingPayers] = useState(false);
   const [payersError, setPayersError] = useState<string | null>(null);
   const [retryCount, setRetryCount] = useState(0);
+  const [payersApiRequest, setPayersApiRequest] = useState<{
+    endpoint: string;
+    method: string;
+    body: any;
+  } | null>(null);
+  const [payersApiResponse, setPayersApiResponse] = useState<any>(null);
+  const [payerIdOverride, setPayerIdOverride] = useState('');
 
   const debounceTimer = useRef<NodeJS.Timeout | null>(null);
 
@@ -91,6 +79,7 @@ export default function EligibilityForm({ onSubmit, loading, environment, creden
   const loadPayers = async (clearCache = false) => {
     // Check localStorage cache first (keyed by environment)
     const cacheKey = `${STORAGE_KEY_PAYERS}-${environment}`;
+    const csvCacheKey = `${STORAGE_KEY_PAYERS_CSV}-${environment}`;
     
     if (!clearCache) {
       const cached = localStorage.getItem(cacheKey);
@@ -100,9 +89,9 @@ export default function EligibilityForm({ onSubmit, loading, environment, creden
           const cachedPayers = JSON.parse(cached);
           const cacheTime = cachedPayers.timestamp || 0;
           const cacheAge = Date.now() - cacheTime;
-          // Use cache if less than 1 hour old
-          if (cacheAge < 60 * 60 * 1000) {
-            console.log('Using cached payer list');
+          // Use cache if less than 24 hours old (CSV export is more stable)
+          if (cacheAge < 24 * 60 * 60 * 1000) {
+            console.log('Using cached payer list (age:', Math.round(cacheAge / 1000 / 60), 'minutes)');
             setAllPayers(cachedPayers.payers || []);
             return;
           }
@@ -113,40 +102,90 @@ export default function EligibilityForm({ onSubmit, loading, environment, creden
     } else {
       // Clear cache if requested
       localStorage.removeItem(cacheKey);
+      localStorage.removeItem(csvCacheKey);
     }
 
-    // Need credentials to fetch payers
+    // Need Payer Lookup API credentials to fetch payers from PayerList v1 API
     if (!credentials) {
-      console.log('No payer lookup credentials available, skipping payer list fetch');
+      console.log('No Payer Lookup API credentials available, skipping payer list fetch');
+      console.log('Please configure Payer Lookup API credentials in Settings');
       return;
     }
 
     setLoadingPayers(true);
     setPayersError(null);
 
+    // Build PayerList API params according to documentation
+    const payerListParams = {
+      system: 'IMN', // IMN is the main system for Medical Network
+      transactionType: ['Eligibility'],
+      status: 'Active'
+    };
+
     try {
-      const result = await getAllPayers(
-        credentials,
+      // Use export endpoint to get all payers in CSV format
+      console.log('Exporting payers list as CSV...');
+      const exportResult = await exportPayerList(
+        credentials, // Payer Lookup API credentials (from Settings tab)
         environment,
-        undefined, // No fallback - use only payer lookup credentials
-        ['Eligibility'], // Filter for Eligibility transaction type
-        'Active' // Only active payers
+        payerListParams
       );
       
-      setAllPayers(result.payers || []);
+      // Extract the actual Optum API request details from response metadata
+      if (exportResult._optumApiRequest) {
+        setPayersApiRequest({
+          endpoint: exportResult._optumApiRequest.url,
+          method: exportResult._optumApiRequest.method,
+          body: exportResult._optumApiRequest.params
+        });
+      }
       
-      // Cache the results
+      // Parse CSV data
+      const payers = parseCsvToPayers(exportResult.csv);
+      
+      setAllPayers(payers);
+      setPayersApiResponse({ 
+        csvLength: exportResult.csv.length,
+        parsedPayers: payers.length,
+        sample: payers.slice(0, 3) // Show first 3 payers as sample
+      });
+      
+      // Cache the results (both CSV and parsed)
       localStorage.setItem(cacheKey, JSON.stringify({
-        payers: result.payers || [],
+        payers: payers,
         timestamp: Date.now()
       }));
+      localStorage.setItem(csvCacheKey, exportResult.csv);
       
-      console.log(`✅ Loaded ${result.payers?.length || 0} payers for dropdown`);
+      console.log(`✅ Loaded ${payers.length} payers from CSV export`);
       setPayersError(null); // Clear any previous errors
+      
     } catch (error: any) {
-      console.error('Failed to load payers:', error.message);
-      setPayersError(error.message);
-      // Don't block the form if payer list fails to load
+      console.error('Failed to export payers:', error.message);
+      
+      // Parse error to get Optum API request details
+      let errorDetails;
+      try {
+        errorDetails = JSON.parse(error.message);
+      } catch {
+        errorDetails = { message: error.message };
+      }
+      
+      // Show the export API request in modal
+      if (errorDetails._optumApiRequest) {
+        setPayersApiRequest({
+          endpoint: errorDetails._optumApiRequest.url,
+          method: errorDetails._optumApiRequest.method,
+          body: errorDetails._optumApiRequest.params
+        });
+      }
+      
+      setPayersError(errorDetails.message || error.message);
+      setPayersApiResponse({ 
+        error: errorDetails.message || error.message,
+        details: errorDetails.details,
+        statusCode: errorDetails.statusCode
+      });
     } finally {
       setLoadingPayers(false);
     }
@@ -177,34 +216,47 @@ export default function EligibilityForm({ onSubmit, loading, environment, creden
     
     // Reset if empty
     if (!payerId) {
-      setPayerLookup({ loading: false, result: null, error: null, request: null });
+      setPayerLookup({ loading: false, result: null, error: null, optumApiRequest: null });
       return;
     }
 
     // Set loading state
-    const requestPayload = { 
-      payerId, 
-      environment, 
-      credentials: credentials || undefined
-    };
-    setPayerLookup({ loading: true, result: null, error: null, request: requestPayload });
+    setPayerLookup({ loading: true, result: null, error: null, optumApiRequest: null });
 
     // Debounce the API call
     debounceTimer.current = setTimeout(async () => {
       try {
+        // Use Payer Lookup API credentials (not Eligibility credentials) for PayerList v1 API
         const result = await lookupPayer(
           payerId, 
-          credentials || undefined, 
-          environment,
-          undefined // No fallback - use only payer lookup credentials
+          credentials || undefined, // Payer Lookup API credentials (from Settings tab)
+          environment
         );
-        setPayerLookup({ loading: false, result, error: null, request: requestPayload });
+        
+        // Extract Optum API request details
+        const optumApiRequest = result._optumApiRequest || null;
+        const { _optumApiRequest, ...responseData } = result;
+        
+        setPayerLookup({ 
+          loading: false, 
+          result: responseData as PayerLookupResult, 
+          error: null, 
+          optumApiRequest 
+        });
       } catch (error: any) {
+        // Try to parse error message to extract Optum API details
+        let errorDetails;
+        try {
+          errorDetails = JSON.parse(error.message);
+        } catch {
+          errorDetails = { message: error.message };
+        }
+        
         setPayerLookup({ 
           loading: false, 
           result: null, 
-          error: error.message,
-          request: requestPayload
+          error: errorDetails.message || error.message,
+          optumApiRequest: errorDetails._optumApiRequest || null
         });
       }
     }, 500); // 500ms debounce
@@ -230,7 +282,7 @@ export default function EligibilityForm({ onSubmit, loading, environment, creden
     // According to docs: only controlNumber and subscriber are required
     const request: any = {
       controlNumber: controlNumber,
-      tradingPartnerServiceId: formData.tradingPartnerServiceId.substring(0, 80),
+      tradingPartnerServiceId: (payerIdOverride || formData.tradingPartnerServiceId).substring(0, 80),
       subscriber: {
         memberId: formData.memberId.substring(0, 80),
         firstName: formData.firstName.substring(0, 35),
@@ -284,7 +336,22 @@ export default function EligibilityForm({ onSubmit, loading, environment, creden
       return;
     }
 
-    onSubmit(request);
+    // Get alternate payer IDs from selected payer if available
+    const selectedPayer = allPayers.find(p => p.payerId === (payerIdOverride || formData.tradingPartnerServiceId));
+    
+    // Debug logging
+    console.log('Selected payer:', selectedPayer);
+    console.log('Looking for payerId:', payerIdOverride || formData.tradingPartnerServiceId);
+    
+    // additionalPayerIDs is parsed as a top-level field from CSV (column 9)
+    const alternateIds = (selectedPayer as any)?.additionalPayerIDs || [];
+    
+    console.log('Selected payer name:', selectedPayer?.payerPlanName);
+    console.log('Primary payer ID:', payerIdOverride || formData.tradingPartnerServiceId);
+    console.log('Alternate payer IDs:', alternateIds);
+    console.log('Total IDs to try:', 1 + alternateIds.length);
+    
+    onSubmit(request, alternateIds);
   };
 
   return (
@@ -292,170 +359,134 @@ export default function EligibilityForm({ onSubmit, loading, environment, creden
       <h2 className="text-2xl font-bold">Eligibility Check</h2>
       
       <div className="space-y-4 border p-4 rounded">
-        <h3 className="font-semibold">Payer</h3>
-        <div className="text-sm text-orange-600 bg-orange-50 p-3 rounded space-y-1">
-          <div>
-            <strong>⚠️ Blue Cross Blue Shield:</strong> BCBS uses numeric payer IDs (not letter codes) that vary by state and plan.
-          </div>
-          <div className="text-xs">
-            Examples: 00851 (BCBS Oregon/Regence), 00002 (BCBS Illinois). You'll need to manually enter the numeric code or wait for Payer List API access.
-          </div>
+        <div className="flex items-center justify-between">
+          <h3 className="font-semibold">Payer</h3>
+          <button
+            type="button"
+            onClick={() => {
+              const cacheKey = `${STORAGE_KEY_PAYERS}-${environment}`;
+              const csvCacheKey = `${STORAGE_KEY_PAYERS_CSV}-${environment}`;
+              localStorage.removeItem(cacheKey);
+              localStorage.removeItem(csvCacheKey);
+              setAllPayers([]);
+              setRetryCount(prev => prev + 1);
+            }}
+            className="text-xs text-blue-600 hover:text-blue-800 underline"
+          >
+            Clear Payer Cache
+          </button>
         </div>
         <div className="space-y-2">
           {loadingPayers ? (
             <div className="text-sm text-gray-500">Loading payer list...</div>
-          ) : allPayers.length > 0 ? (
-            // Use API-fetched payers if available
-            <select
-              required
-              value={(() => {
-                // Find the payer that matches the current tradingPartnerServiceId
-                const matchingPayer = allPayers.find(p => 
-                  p.imnPayerId === formData.tradingPartnerServiceId ||
-                  p.payerId === formData.tradingPartnerServiceId ||
-                  p.industryPayerId === formData.tradingPartnerServiceId
-                );
-                // Return the value to use (imnPayerId preferred, fallback to payerId)
-                return matchingPayer ? (matchingPayer.imnPayerId || matchingPayer.payerId || '') : formData.tradingPartnerServiceId;
-              })()}
-              onChange={(e) => {
-                const selectedPayer = allPayers.find(p => 
-                  (p.imnPayerId || p.payerId) === e.target.value
-                );
-                // Use imnPayerId if available (this is the tradingPartnerServiceId), otherwise payerId
-                const payerId = selectedPayer?.imnPayerId || selectedPayer?.payerId || e.target.value;
-                setFormData({...formData, tradingPartnerServiceId: payerId});
-              }}
-              className="w-full p-2 border rounded"
-            >
-              <option value="">Select a payer...</option>
-              {allPayers.map((payer, index) => {
-                // Use imnPayerId as the value (this is what we need for tradingPartnerServiceId)
-                // Fallback to payerId if imnPayerId is not available
-                const payerId = payer.imnPayerId || payer.payerId || '';
-                const displayName = payer.payerPlanName || payer.payerId || payer.imnPayerId || 'Unknown';
-                const key = payerId || `payer-${index}`;
-                return (
-                  <option key={key} value={payerId}>
-                    {displayName} {payer.payerId && payer.payerId !== payerId ? `(${payer.payerId})` : ''}
-                  </option>
-                );
-              })}
-            </select>
-          ) : (
-            // Use hardcoded common payers as fallback with manual entry option
-            <>
-              <div className="space-y-2">
-                <select
-                  value={formData.tradingPartnerServiceId}
-                  onChange={(e) => {
-                    if (e.target.value === '__MANUAL__') {
-                      setFormData({...formData, tradingPartnerServiceId: ''});
-                    } else {
-                      setFormData({...formData, tradingPartnerServiceId: e.target.value});
-                    }
-                  }}
-                  className="w-full p-2 border rounded"
-                >
-                  <option value="">Select a payer or enter manually below...</option>
-                  {COMMON_PAYERS.map((payer) => (
-                    <option key={payer.id} value={payer.id}>
-                      {payer.name} ({payer.id})
-                    </option>
-                  ))}
-                  <option value="__MANUAL__">--- Enter Payer ID Manually ---</option>
-                </select>
-                
-                <div className="flex gap-2 items-center">
-                  <label className="text-sm text-gray-600 whitespace-nowrap">Or enter manually:</label>
-                  <input
-                    required
-                    placeholder="Payer ID (e.g., UHC, 00851 for BCBS Oregon)"
-                    value={formData.tradingPartnerServiceId}
-                    onChange={(e) => setFormData({...formData, tradingPartnerServiceId: e.target.value})}
-                    className="flex-1 p-2 border rounded"
-                  />
-                </div>
-              </div>
-              {payersError && (
-                <div className="text-xs text-orange-600 space-y-1 mt-2">
-                  <div>Could not load full payer list: {payersError}</div>
-                  <div>Using common payers list with manual entry option.</div>
-                  {payersError.includes('401') && (
-                    <div className="text-red-600 font-semibold mt-1">
-                      Note: 401 Unauthorized suggests the credentials may not have permission to fetch all payers.
-                    </div>
-                  )}
+          ) : payersError ? (
+            // Show error if API call failed
+            <div className="space-y-2">
+              <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded p-3">
+                <div className="font-semibold mb-1">Failed to load payer list</div>
+                <div className="text-xs">{payersError}</div>
+                {payersError.includes('401') && (
+                  <div className="text-xs font-semibold mt-2">
+                    Note: 401 Unauthorized suggests the Payer Lookup API credentials may not have permission to fetch payers.
+                    Please check your credentials in Settings.
+                  </div>
+                )}
+                <div className="flex gap-2 mt-2">
                   <button
                     type="button"
                     onClick={() => {
                       setRetryCount(prev => prev + 1);
                       loadPayers(true); // Clear cache and retry
                     }}
-                    className="px-3 py-2 bg-blue-600 text-white text-sm rounded hover:bg-blue-700 mt-2"
+                    className="px-3 py-2 bg-blue-600 text-white text-sm rounded hover:bg-blue-700"
                     disabled={loadingPayers}
                   >
-                    {loadingPayers ? 'Loading...' : 'Retry Full List'}
+                    {loadingPayers ? 'Loading...' : 'Retry'}
                   </button>
-                </div>
-              )}
-            </>
-          )}
-          {formData.tradingPartnerServiceId && (
-            <div className="text-sm space-y-1">
-              {payerLookup.loading && (
-                <span className="text-gray-500">Looking up payer...</span>
-              )}
-              {!payerLookup.loading && payerLookup.result && payerLookup.result.total > 0 && (
-                <div className="flex items-center gap-2">
-                  <span className="text-green-600 font-medium">
-                    ✓ Match found: {payerLookup.result.payers[0].payerPlanName || 'Unknown Name'}
-                  </span>
-                  {(payerLookup.request || payerLookup.result) && (
+                  {payersApiRequest && (
                     <button
                       type="button"
                       onClick={() => setShowPayerModal(true)}
-                      className="text-xs text-blue-600 hover:text-blue-800 underline"
+                      className="px-3 py-2 bg-gray-600 text-white text-sm rounded hover:bg-gray-700"
                     >
                       View API Request/Response
                     </button>
                   )}
                 </div>
-              )}
-              {!payerLookup.loading && payerLookup.result && payerLookup.result.total === 0 && (
-                <div className="flex items-center gap-2">
-                  <span className="text-red-600 font-medium">
-                    ✗ Payer not found
-                  </span>
-                  {(payerLookup.request || payerLookup.error) && (
-                    <button
-                      type="button"
-                      onClick={() => setShowPayerModal(true)}
-                      className="text-xs text-blue-600 hover:text-blue-800 underline"
-                    >
-                      View API Request/Response
-                    </button>
-                  )}
-                </div>
-              )}
-              {!payerLookup.loading && payerLookup.error && (
-                <div className="flex items-center gap-2">
-                  <span className="text-orange-600">
-                    Unable to verify payer
-                  </span>
-                  {(payerLookup.request || payerLookup.error) && (
-                    <button
-                      type="button"
-                      onClick={() => setShowPayerModal(true)}
-                      className="text-xs text-blue-600 hover:text-blue-800 underline"
-                    >
-                      View API Request/Response
-                    </button>
-                  )}
-                </div>
-              )}
+              </div>
+            </div>
+          ) : allPayers.length > 0 ? (
+            // Use API-fetched payers
+            <select
+              required
+              value={formData.tradingPartnerServiceId}
+              onChange={(e) => {
+                setFormData({...formData, tradingPartnerServiceId: e.target.value});
+              }}
+              className="w-full p-2 border rounded font-mono text-sm"
+            >
+              <option value="">Name                                              | Payer ID</option>
+              {allPayers.map((payer, index) => {
+                const payerId = payer.payerId || '';
+                const name = (payer.payerPlanName || 'Unknown').substring(0, 50);
+                const key = payerId || `payer-${index}`;
+                
+                // Format as table with padding
+                const formattedName = name.padEnd(50, ' ');
+                
+                return (
+                  <option key={key} value={payerId}>
+                    {formattedName} | {payerId}
+                  </option>
+                );
+              })}
+            </select>
+          ) : (
+            // No payers loaded yet and no error (initial state)
+            <div className="text-sm text-gray-500">
+              Waiting for payer list to load...
             </div>
           )}
+          <div className="mt-2">
+            <label className="text-sm text-gray-600">Override Payer ID (optional):</label>
+            <input
+              placeholder="Leave empty to use dropdown selection"
+              value={payerIdOverride}
+              onChange={(e) => setPayerIdOverride(e.target.value)}
+              className="w-full p-2 border rounded text-sm"
+            />
+            {payerIdOverride && (
+              <div className="text-xs text-blue-600 mt-1">
+                Will use override value: {payerIdOverride}
+              </div>
+            )}
+          </div>
+          
+          {/* Show additional payer IDs when a payer is selected */}
+          {formData.tradingPartnerServiceId && !payerIdOverride && (() => {
+            const selectedPayer = allPayers.find(p => p.payerId === formData.tradingPartnerServiceId);
+            const additionalIds = (selectedPayer as any)?.additionalPayerIDs || [];
+            
+            if (additionalIds.length > 0) {
+              const reversedIds = [...additionalIds].reverse();
+              return (
+                <div className="mt-2 p-3 bg-blue-50 border border-blue-200 rounded">
+                  <div className="text-xs font-semibold text-gray-700 mb-1">
+                    Will try these payer IDs in order (reverse of CSV list):
+                  </div>
+                  <div className="text-xs font-mono space-y-1">
+                    {reversedIds.map((id: string, idx: number) => (
+                      <div key={idx} className="text-blue-700">
+                        {idx + 1}. {id}
+                      </div>
+                    ))}
+                    <div className="text-gray-600">{reversedIds.length + 1}. {formData.tradingPartnerServiceId} (primary, last resort)</div>
+                  </div>
+                </div>
+              );
+            }
+            return null;
+          })()}
         </div>
       </div>
 
@@ -547,18 +578,14 @@ export default function EligibilityForm({ onSubmit, loading, environment, creden
         {loading ? 'Checking...' : 'Check Eligibility'}
       </button>
 
-      {/* Payer Lookup API Response Modal */}
+      {/* PayerList API Response Modal - Shows actual Optum API calls */}
       <ApiResponseModal
         isOpen={showPayerModal}
         onClose={() => setShowPayerModal(false)}
-        title="Payer Lookup API Request/Response"
-        request={payerLookup.request ? {
-          endpoint: `/api/eligibility/lookup-payer`,
-          method: 'POST',
-          body: payerLookup.request
-        } : undefined}
-        response={payerLookup.result || undefined}
-        error={payerLookup.error || undefined}
+        title="Optum PayerList v1 API Request/Response"
+        request={payersApiRequest || undefined}
+        response={payersApiResponse || undefined}
+        error={payersError || undefined}
       />
     </form>
   );
