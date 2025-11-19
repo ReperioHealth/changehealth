@@ -38,3 +38,4 @@ coverage/
 # Personal test data files
 matt.json
 travis.json
+backend/payers-export.csv
