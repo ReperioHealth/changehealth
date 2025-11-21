@@ -2,14 +2,39 @@ import { useState, useEffect } from 'react';
 import type { ClaimSubmissionRequest, ServiceLine, ClaimResponse } from '../types/claims';
 import type { Environment, Credentials } from '../types/eligibility';
 import { validateClaim, submitClaim, generateClaimPDF } from '../services/claimsApi';
+import { exportPayerList, parseCsvToPayers, type Payer } from '../services/api';
+import providerOptionsData from '../data/providerOptions.json';
 import ClaimResponseDisplay from './ClaimResponseDisplay';
 import EnvironmentSelector from './EnvironmentSelector';
+import ApiResponseModal from './ApiResponseModal';
 
 interface Props {
   environment: Environment;
   credentials: Credentials | null;
+  payerLookupCredentials?: Credentials | null;
   onEnvironmentChange?: (env: Environment) => void;
 }
+
+const STORAGE_KEY_PAYERS = 'optum-payers-list-claims';
+const STORAGE_KEY_PAYERS_CSV = 'optum-payers-csv-claims';
+const STORAGE_KEY_SELECTED_PAYER = 'optum-selected-payer-claims';
+const CUSTOM_PROVIDER_OPTION = 'custom';
+
+type ProviderOption = {
+  name: string; // Display label in dropdown
+  organizationName: string; // Actual value submitted to API
+  npi: string;
+  ein?: string;
+  address?: {
+    address1: string;
+    city: string;
+    state: string;
+    postalCode: string;
+  };
+  phone?: string;
+};
+
+const PROVIDER_OPTIONS = providerOptionsData as ProviderOption[];
 
 // US States for dropdown
 const US_STATES = [
@@ -134,7 +159,7 @@ function formatDateForInput(dateStr: string): string {
   return dateStr;
 }
 
-export default function ClaimForm({ environment, credentials, onEnvironmentChange }: Props) {
+export default function ClaimForm({ environment, credentials, payerLookupCredentials, onEnvironmentChange }: Props) {
   const [formData, setFormData] = useState<Partial<ClaimSubmissionRequest>>(() => {
     const initialData: Partial<ClaimSubmissionRequest> = {};
     // Box 1: Set "Other" (CI) as default
@@ -144,7 +169,8 @@ export default function ClaimForm({ environment, credentials, onEnvironmentChang
     } as Partial<ClaimSubmissionRequest>['claimInformation'];
     // Box 25: Set EIN as default
     initialData.billing = {
-      taxIdType: 'EIN'
+      taxIdType: 'EIN',
+      providerType: 'Organization' // Set default provider type
     } as Partial<ClaimSubmissionRequest>['billing'];
     return initialData;
   });
@@ -160,6 +186,222 @@ export default function ClaimForm({ environment, credentials, onEnvironmentChang
   const [lastRequest, setLastRequest] = useState<ClaimSubmissionRequest | null>(null);
   const [actionType, setActionType] = useState<'validate' | 'submit' | null>(null);
 
+  // Payer state
+  const [allPayers, setAllPayers] = useState<Payer[]>([]);
+  const [loadingPayers, setLoadingPayers] = useState(false);
+  const [payersError, setPayersError] = useState<string | null>(null);
+  const [showPayerModal, setShowPayerModal] = useState(false);
+  const [payersApiRequest, setPayersApiRequest] = useState<{
+    endpoint: string;
+    method: string;
+    body: any;
+  } | null>(null);
+  const [payersApiResponse, setPayersApiResponse] = useState<any>(null);
+  const [selectedPayerName, setSelectedPayerName] = useState<string>('');
+
+  // Provider state
+  const [selectedProviderOption, setSelectedProviderOption] = useState<string>(CUSTOM_PROVIDER_OPTION);
+
+  // Load payers list function
+  const loadPayers = async (clearCache = false) => {
+    const cacheKey = `${STORAGE_KEY_PAYERS}-${environment}`;
+    const csvCacheKey = `${STORAGE_KEY_PAYERS_CSV}-${environment}`;
+    
+    if (!clearCache) {
+      const cached = localStorage.getItem(cacheKey);
+      
+      if (cached) {
+        try {
+          const cachedPayers = JSON.parse(cached);
+          const cacheTime = cachedPayers.timestamp || 0;
+          const cacheAge = Date.now() - cacheTime;
+          // Use cache if less than 24 hours old
+          if (cacheAge < 24 * 60 * 60 * 1000) {
+            console.log('Using cached payer list for claims (age:', Math.round(cacheAge / 1000 / 60), 'minutes)');
+            setAllPayers(cachedPayers.payers || []);
+            return;
+          }
+        } catch (e) {
+          console.log('Failed to parse cached payers, fetching fresh list');
+        }
+      }
+    } else {
+      localStorage.removeItem(cacheKey);
+      localStorage.removeItem(csvCacheKey);
+    }
+
+    if (!payerLookupCredentials) {
+      console.log('No Payer Lookup API credentials available for Claims Form');
+      return;
+    }
+
+    setLoadingPayers(true);
+    setPayersError(null);
+
+    const payerListParams = {
+      system: 'IMN',
+      transactionType: ['Eligibility'],
+      status: 'Active'
+    };
+
+    try {
+      console.log('Exporting payers list as CSV for claims...');
+      const exportResult = await exportPayerList(
+        payerLookupCredentials,
+        environment,
+        payerListParams
+      );
+      
+      if (exportResult._optumApiRequest) {
+        setPayersApiRequest({
+          endpoint: exportResult._optumApiRequest.url,
+          method: exportResult._optumApiRequest.method,
+          body: exportResult._optumApiRequest.params
+        });
+      }
+      
+      const payers = parseCsvToPayers(exportResult.csv);
+      
+      setAllPayers(payers);
+      setPayersApiResponse({ 
+        csvLength: exportResult.csv.length,
+        parsedPayers: payers.length,
+        sample: payers.slice(0, 3)
+      });
+      
+      localStorage.setItem(cacheKey, JSON.stringify({
+        payers: payers,
+        timestamp: Date.now()
+      }));
+      localStorage.setItem(csvCacheKey, exportResult.csv);
+      
+      console.log(`✅ Loaded ${payers.length} payers from CSV export for claims`);
+      setPayersError(null);
+      
+    } catch (error: any) {
+      console.error('Failed to export payers for claims:', error.message);
+      
+      let errorDetails;
+      try {
+        errorDetails = JSON.parse(error.message);
+      } catch {
+        errorDetails = { message: error.message };
+      }
+      
+      if (errorDetails._optumApiRequest) {
+        setPayersApiRequest({
+          endpoint: errorDetails._optumApiRequest.url,
+          method: errorDetails._optumApiRequest.method,
+          body: errorDetails._optumApiRequest.params
+        });
+      }
+      
+      setPayersError(errorDetails.message || error.message);
+      setPayersApiResponse({ 
+        error: errorDetails.message || error.message,
+        details: errorDetails.details,
+        statusCode: errorDetails.statusCode
+      });
+    } finally {
+      setLoadingPayers(false);
+    }
+  };
+
+  // Handle provider dropdown change
+  const handleProviderPresetChange = (value: string) => {
+    setSelectedProviderOption(value);
+    
+    if (value === CUSTOM_PROVIDER_OPTION) {
+      // Clear provider fields when custom is selected
+      return;
+    }
+
+    const selectedOption = PROVIDER_OPTIONS.find((option) => option.npi === value);
+    if (selectedOption) {
+      // Populate both Box 32 (Service Facility) and Box 33 (Billing Provider)
+      setFormData((prev) => {
+        const newData = { ...prev };
+        
+        // Box 33 (Billing Provider) - use organizationName for submission
+        newData.billing = {
+          ...newData.billing,
+          providerType: 'Organization',
+          organizationName: selectedOption.organizationName,
+          npi: selectedOption.npi,
+          employerId: selectedOption.ein || newData.billing?.employerId,
+          taxIdType: selectedOption.ein ? 'EIN' : newData.billing?.taxIdType,
+          address: selectedOption.address ? {
+            address1: selectedOption.address.address1,
+            city: selectedOption.address.city,
+            state: selectedOption.address.state,
+            postalCode: selectedOption.address.postalCode
+          } : newData.billing?.address,
+          contactInformation: {
+            ...newData.billing?.contactInformation,
+            phoneNumber: selectedOption.phone || newData.billing?.contactInformation?.phoneNumber
+          }
+        };
+        
+        // Box 32 (Service Facility Location) - use organizationName for submission
+        if (!newData.claimInformation) {
+          newData.claimInformation = {} as any;
+        }
+        newData.claimInformation.serviceFacilityLocation = {
+          organizationName: selectedOption.organizationName,
+          npi: selectedOption.npi,
+          address: selectedOption.address ? {
+            address1: selectedOption.address.address1,
+            city: selectedOption.address.city,
+            state: selectedOption.address.state,
+            postalCode: selectedOption.address.postalCode
+          } : undefined
+        };
+        
+        return newData;
+      });
+    }
+  };
+
+  // Handle payer selection
+  const handlePayerChange = (payerId: string) => {
+    const selectedPayer = allPayers.find(p => p.payerId === payerId);
+    
+    setFormData((prev) => {
+      const newData = { ...prev };
+      
+      // Set trading partner service ID
+      newData.tradingPartnerServiceId = payerId;
+      
+      // Set receiver organization name from payer
+      if (selectedPayer) {
+        newData.receiver = {
+          organizationName: selectedPayer.payerPlanName || selectedPayer.payerId || ''
+        };
+        setSelectedPayerName(selectedPayer.payerPlanName || '');
+      }
+      
+      return newData;
+    });
+    
+    // Save to localStorage
+    const savedPayerKey = `${STORAGE_KEY_SELECTED_PAYER}-${environment}`;
+    localStorage.setItem(savedPayerKey, payerId);
+  };
+
+  // Load payers on mount and when environment/credentials change
+  useEffect(() => {
+    loadPayers();
+  }, [environment, payerLookupCredentials]);
+
+  // Load previously selected payer on mount
+  useEffect(() => {
+    const savedPayerKey = `${STORAGE_KEY_SELECTED_PAYER}-${environment}`;
+    const savedPayerId = localStorage.getItem(savedPayerKey);
+    if (savedPayerId && formData.tradingPartnerServiceId !== savedPayerId) {
+      handlePayerChange(savedPayerId);
+    }
+  }, [environment, allPayers]);
+
   useEffect(() => {
     // Reset form data when environment changes, but keep the requested defaults
     const initialData: Partial<ClaimSubmissionRequest> = {};
@@ -170,7 +412,8 @@ export default function ClaimForm({ environment, credentials, onEnvironmentChang
     } as Partial<ClaimSubmissionRequest>['claimInformation'];
     // Box 25: Set EIN as default
     initialData.billing = {
-      taxIdType: 'EIN'
+      taxIdType: 'EIN',
+      providerType: 'Organization' // Set default provider type
     } as Partial<ClaimSubmissionRequest>['billing'];
     setFormData(initialData);
     // Reset signature fields
@@ -372,18 +615,22 @@ export default function ClaimForm({ environment, credentials, onEnvironmentChang
     setActionType('validate');
 
     try {
+      // Build submitter from billing provider data
+      const submitter = formData.submitter || {
+        organizationName: formData.billing?.organizationName || formData.billing?.lastName || 'SUBMITTER ORG',
+        contactInformation: {
+          name: formData.billing?.organizationName || formData.billing?.lastName || 'Contact',
+          phoneNumber: formData.billing?.contactInformation?.phoneNumber || '5555555555',
+          email: formData.billing?.contactInformation?.email
+        }
+      };
+
       const claimRequest: ClaimSubmissionRequest = {
         controlNumber: formData.controlNumber || `CLM${Date.now()}`.slice(0, 30),
         tradingPartnerServiceId: formData.tradingPartnerServiceId || '',
-        submitter: formData.submitter || {
-          organizationName: 'SUBMITTER ORG',
-          contactInformation: {
-            name: 'Contact',
-            phoneNumber: '5555555555'
-          }
-        },
+        submitter: submitter,
         receiver: formData.receiver || {
-          organizationName: 'RECEIVER ORG'
+          organizationName: selectedPayerName || 'RECEIVER ORG'
         },
         subscriber: {
           memberId: formData.subscriber?.memberId || '',
@@ -468,18 +715,22 @@ export default function ClaimForm({ environment, credentials, onEnvironmentChang
     setActionType('submit');
 
     try {
+      // Build submitter from billing provider data
+      const submitter = formData.submitter || {
+        organizationName: formData.billing?.organizationName || formData.billing?.lastName || 'SUBMITTER ORG',
+        contactInformation: {
+          name: formData.billing?.organizationName || formData.billing?.lastName || 'Contact',
+          phoneNumber: formData.billing?.contactInformation?.phoneNumber || '5555555555',
+          email: formData.billing?.contactInformation?.email
+        }
+      };
+
       const claimRequest: ClaimSubmissionRequest = {
         controlNumber: formData.controlNumber || `CLM${Date.now()}`.slice(0, 30),
         tradingPartnerServiceId: formData.tradingPartnerServiceId || '',
-        submitter: formData.submitter || {
-          organizationName: 'SUBMITTER ORG',
-          contactInformation: {
-            name: 'Contact',
-            phoneNumber: '5555555555'
-          }
-        },
+        submitter: submitter,
         receiver: formData.receiver || {
-          organizationName: 'RECEIVER ORG'
+          organizationName: selectedPayerName || 'RECEIVER ORG'
         },
         subscriber: {
           memberId: formData.subscriber?.memberId || '',
@@ -618,6 +869,80 @@ export default function ClaimForm({ environment, credentials, onEnvironmentChang
           <div className="text-center mb-6">
             <h2 className="text-xl font-bold text-[#c41e3a] mb-1">HEALTH INSURANCE CLAIM FORM</h2>
             <p className="text-xs text-gray-600">APPROVED BY NATIONAL UNIFORM CLAIM COMMITTEE (NUCC) 02/12</p>
+          </div>
+
+          {/* Payer Selection */}
+          <div className="pb-4 border-b-2 border-gray-300">
+            <label className="text-sm font-bold text-gray-700 mb-2 block">Payer (Insurance Company)</label>
+            {loadingPayers ? (
+              <div className="p-2 text-gray-500">Loading payers...</div>
+            ) : payersError ? (
+              <div className="space-y-2">
+                <div className="p-2 bg-red-50 border border-red-200 rounded text-sm text-red-700">
+                  {payersError}
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => loadPayers(true)}
+                    className="px-3 py-1 bg-blue-500 text-white rounded text-sm hover:bg-blue-600"
+                  >
+                    Retry
+                  </button>
+                  {payersApiRequest && (
+                    <button
+                      type="button"
+                      onClick={() => setShowPayerModal(true)}
+                      className="px-3 py-1 bg-gray-500 text-white rounded text-sm hover:bg-gray-600"
+                    >
+                      View API Request/Response
+                    </button>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <select
+                value={formData.tradingPartnerServiceId || ''}
+                onChange={(e) => handlePayerChange(e.target.value)}
+                className="w-full p-2 border rounded font-mono text-sm"
+              >
+                <option value="">Name                                              | Payer ID</option>
+                {allPayers.map((payer, index) => {
+                  const payerId = payer.payerId || '';
+                  const name = (payer.payerPlanName || 'Unknown').substring(0, 50);
+                  const key = payerId || `payer-${index}`;
+                  const formattedName = name.padEnd(50, ' ');
+                  
+                  return (
+                    <option key={key} value={payerId}>
+                      {formattedName} | {payerId}
+                    </option>
+                  );
+                })}
+              </select>
+            )}
+          </div>
+
+          {/* Provider Selection (populates Box 32 & 33) */}
+          <div className="pb-4 border-b-2 border-gray-300">
+            <label className="text-sm font-bold text-gray-700 mb-2 block">
+              Provider (Billing & Service Facility)
+            </label>
+            <select
+              value={selectedProviderOption}
+              onChange={(e) => handleProviderPresetChange(e.target.value)}
+              className="w-full p-2 border rounded mb-2"
+            >
+              <option value={CUSTOM_PROVIDER_OPTION}>-- Enter Custom Provider --</option>
+              {PROVIDER_OPTIONS.map((provider) => (
+                <option key={provider.npi} value={provider.npi}>
+                  {provider.name} (NPI: {provider.npi})
+                </option>
+              ))}
+            </select>
+            <p className="text-xs text-gray-500 mt-1">
+              This will populate both Box 32 (Service Facility) and Box 33 (Billing Provider)
+            </p>
           </div>
 
           {/* Box 1 */}
@@ -2317,6 +2642,17 @@ export default function ClaimForm({ environment, credentials, onEnvironmentChang
             </div>
           ) : null}
         </div>
+      )}
+
+      {/* Payer API Request/Response Modal */}
+      {showPayerModal && payersApiRequest && (
+        <ApiResponseModal
+          isOpen={showPayerModal}
+          onClose={() => setShowPayerModal(false)}
+          title="PayerList v1 API - Export Request/Response"
+          request={payersApiRequest}
+          response={payersApiResponse}
+        />
       )}
     </div>
   );

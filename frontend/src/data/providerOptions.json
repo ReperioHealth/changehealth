@@ -1,15 +1,41 @@
 [
   {
     "name": "Reperio Health Medical Group, PLLC",
-    "npi": "1982438362"
+    "organizationName": "Reperio Health Medical Group, PLLC",
+    "npi": "1982438362",
+    "ein": "994567305",
+    "address": {
+      "address1": "4784 SE 17th Ave, Ste 225",
+      "city": "Portland",
+      "state": "OR",
+      "postalCode": "97202"
+    },
+    "phone": "5551234567"
   },
   {
     "name": "Reperio Health Medical Group, LLC (NJ, LA, SC)",
-    "npi": "1205706702"
+    "organizationName": "Reperio Health Medical Group, LLC",
+    "npi": "1205706702",
+    "ein": "394343101",
+    "address": {
+      "address1": "61 W Palisade Ave, Suite 2B",
+      "city": "Englewood",
+      "state": "NJ",
+      "postalCode": "07631"
+    },
+    "phone": "5551234568"
   },
   {
     "name": "Alexander Marsh, M.D., PC (CA, DE)",
-    "npi": "1932069788"
+    "organizationName": "Alexander Marsh, M.D., PC",
+    "npi": "1932069788",
+    "ein": "394724400",
+    "address": {
+      "address1": "95 Third Street, 2nd Floor",
+      "city": "San Francisco",
+      "state": "CA",
+      "postalCode": "94103"
+    },
+    "phone": "5551234569"
   }
 ]
-

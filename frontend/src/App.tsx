@@ -103,6 +103,7 @@ export default function App() {
           <ClaimForm
             environment={environment}
             credentials={eligibilityCredentials}
+            payerLookupCredentials={payerLookupCredentials}
             onEnvironmentChange={handleEnvironmentChange}
           />
         );
