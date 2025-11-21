@@ -18,6 +18,8 @@ interface Props {
 const STORAGE_KEY_PAYERS = 'optum-payers-list-claims';
 const STORAGE_KEY_PAYERS_CSV = 'optum-payers-csv-claims';
 const STORAGE_KEY_SELECTED_PAYER = 'optum-selected-payer-claims';
+const STORAGE_KEY_FORM_DATA = 'optum-claim-form-data';
+const STORAGE_KEY_USAGE_INDICATOR = 'optum-claim-usage-indicator';
 const CUSTOM_PROVIDER_OPTION = 'custom';
 
 type ProviderOption = {
@@ -160,7 +162,17 @@ function formatDateForInput(dateStr: string): string {
 }
 
 export default function ClaimForm({ environment, credentials, payerLookupCredentials, onEnvironmentChange }: Props) {
+  // Load form data from localStorage or use defaults
   const [formData, setFormData] = useState<Partial<ClaimSubmissionRequest>>(() => {
+    const saved = localStorage.getItem(STORAGE_KEY_FORM_DATA);
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch (e) {
+        console.log('Failed to parse saved form data');
+      }
+    }
+    
     const initialData: Partial<ClaimSubmissionRequest> = {};
     // Box 1: Set "Other" (CI) as default
     initialData.claimInformation = {
@@ -175,10 +187,25 @@ export default function ClaimForm({ environment, credentials, payerLookupCredent
     return initialData;
   });
   
+  // Usage indicator state (T=Test, P=Production)
+  const [submitAsTest, setSubmitAsTest] = useState<boolean>(() => {
+    const saved = localStorage.getItem(STORAGE_KEY_USAGE_INDICATOR);
+    return saved ? saved === 'true' : true; // Default to test mode
+  });
+  
   // Local state for signature fields (not in API structure)
-  const [patientSignatureOnFile, setPatientSignatureOnFile] = useState(true);
-  const [authorizedSignatureOnFile, setAuthorizedSignatureOnFile] = useState(true);
-  const [physicianSignatureOnFile, setPhysicianSignatureOnFile] = useState(true);
+  const [patientSignatureOnFile, setPatientSignatureOnFile] = useState(() => {
+    const saved = localStorage.getItem(`${STORAGE_KEY_FORM_DATA}-patientSignature`);
+    return saved ? saved === 'true' : true;
+  });
+  const [authorizedSignatureOnFile, setAuthorizedSignatureOnFile] = useState(() => {
+    const saved = localStorage.getItem(`${STORAGE_KEY_FORM_DATA}-authorizedSignature`);
+    return saved ? saved === 'true' : true;
+  });
+  const [physicianSignatureOnFile, setPhysicianSignatureOnFile] = useState(() => {
+    const saved = localStorage.getItem(`${STORAGE_KEY_FORM_DATA}-physicianSignature`);
+    return saved ? saved === 'true' : true;
+  });
 
   const [loading, setLoading] = useState(false);
   const [response, setResponse] = useState<ClaimResponse | null>(null);
@@ -200,7 +227,32 @@ export default function ClaimForm({ environment, credentials, payerLookupCredent
   const [selectedPayerName, setSelectedPayerName] = useState<string>('');
 
   // Provider state
-  const [selectedProviderOption, setSelectedProviderOption] = useState<string>(CUSTOM_PROVIDER_OPTION);
+  const [selectedProviderOption, setSelectedProviderOption] = useState<string>(() => {
+    const saved = localStorage.getItem(`${STORAGE_KEY_FORM_DATA}-providerOption`);
+    return saved || CUSTOM_PROVIDER_OPTION;
+  });
+
+  // Save form data to localStorage whenever it changes
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEY_FORM_DATA, JSON.stringify(formData));
+  }, [formData]);
+
+  // Save usage indicator to localStorage
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEY_USAGE_INDICATOR, submitAsTest.toString());
+  }, [submitAsTest]);
+
+  // Save signature states to localStorage
+  useEffect(() => {
+    localStorage.setItem(`${STORAGE_KEY_FORM_DATA}-patientSignature`, patientSignatureOnFile.toString());
+    localStorage.setItem(`${STORAGE_KEY_FORM_DATA}-authorizedSignature`, authorizedSignatureOnFile.toString());
+    localStorage.setItem(`${STORAGE_KEY_FORM_DATA}-physicianSignature`, physicianSignatureOnFile.toString());
+  }, [patientSignatureOnFile, authorizedSignatureOnFile, physicianSignatureOnFile]);
+
+  // Save provider option to localStorage
+  useEffect(() => {
+    localStorage.setItem(`${STORAGE_KEY_FORM_DATA}-providerOption`, selectedProviderOption);
+  }, [selectedProviderOption]);
 
   // Load payers list function
   const loadPayers = async (clearCache = false) => {
@@ -402,24 +454,8 @@ export default function ClaimForm({ environment, credentials, payerLookupCredent
     }
   }, [environment, allPayers]);
 
+  // Clear response when environment changes (but keep form data)
   useEffect(() => {
-    // Reset form data when environment changes, but keep the requested defaults
-    const initialData: Partial<ClaimSubmissionRequest> = {};
-    // Box 1: Set "Other" (CI) as default
-    initialData.claimInformation = {
-      claimFilingCode: 'CI',
-      outsideLab: false // Box 20: Set "No" as default
-    } as Partial<ClaimSubmissionRequest>['claimInformation'];
-    // Box 25: Set EIN as default
-    initialData.billing = {
-      taxIdType: 'EIN',
-      providerType: 'Organization' // Set default provider type
-    } as Partial<ClaimSubmissionRequest>['billing'];
-    setFormData(initialData);
-    // Reset signature fields
-    setPatientSignatureOnFile(true);
-    setAuthorizedSignatureOnFile(true);
-    setPhysicianSignatureOnFile(true);
     setResponse(null);
     setError(null);
   }, [environment]);
@@ -628,6 +664,7 @@ export default function ClaimForm({ environment, credentials, payerLookupCredent
       const claimRequest: ClaimSubmissionRequest = {
         controlNumber: formData.controlNumber || `CLM${Date.now()}`.slice(0, 30),
         tradingPartnerServiceId: formData.tradingPartnerServiceId || '',
+        usageIndicator: submitAsTest ? 'T' : 'P',
         submitter: submitter,
         receiver: formData.receiver || {
           organizationName: selectedPayerName || 'RECEIVER ORG'
@@ -728,6 +765,7 @@ export default function ClaimForm({ environment, credentials, payerLookupCredent
       const claimRequest: ClaimSubmissionRequest = {
         controlNumber: formData.controlNumber || `CLM${Date.now()}`.slice(0, 30),
         tradingPartnerServiceId: formData.tradingPartnerServiceId || '',
+        usageIndicator: submitAsTest ? 'T' : 'P',
         submitter: submitter,
         receiver: formData.receiver || {
           organizationName: selectedPayerName || 'RECEIVER ORG'
@@ -850,6 +888,109 @@ export default function ClaimForm({ environment, credentials, payerLookupCredent
     updateField(['claimInformation', 'serviceLines'], updated);
   };
 
+  const clearForm = () => {
+    const initialData: Partial<ClaimSubmissionRequest> = {};
+    initialData.claimInformation = {
+      claimFilingCode: 'CI',
+      outsideLab: false
+    } as Partial<ClaimSubmissionRequest>['claimInformation'];
+    initialData.billing = {
+      taxIdType: 'EIN',
+      providerType: 'Organization'
+    } as Partial<ClaimSubmissionRequest>['billing'];
+    
+    setFormData(initialData);
+    setPatientSignatureOnFile(true);
+    setAuthorizedSignatureOnFile(true);
+    setPhysicianSignatureOnFile(true);
+    setSelectedProviderOption(CUSTOM_PROVIDER_OPTION);
+    setResponse(null);
+    setError(null);
+  };
+
+  const loadDefaultData = () => {
+    // Load test data - you can customize this
+    const testData: Partial<ClaimSubmissionRequest> = {
+      controlNumber: 'TEST' + Date.now().toString().slice(-6),
+      tradingPartnerServiceId: '87726',
+      submitter: {
+        organizationName: 'Reperio Health Medical Group',
+        contactInformation: {
+          name: 'Billing Department',
+          phoneNumber: '5551234567',
+          email: 'billing@reperio.health'
+        }
+      },
+      receiver: {
+        organizationName: 'UnitedHealthcare'
+      },
+      subscriber: {
+        paymentResponsibilityLevelCode: 'P',
+        memberId: '22294105300',
+        firstName: 'Matthew',
+        lastName: 'Wallington',
+        gender: 'M',
+        dateOfBirth: '19791118',
+        address: {
+          address1: '123 Main St',
+          city: 'Portland',
+          state: 'OR',
+          postalCode: '97201'
+        }
+      },
+      billing: {
+        providerType: 'Organization',
+        organizationName: 'Reperio Health Medical Group, PLLC',
+        npi: '1982438362',
+        taxIdType: 'EIN',
+        employerId: '123456789',
+        address: {
+          address1: '456 Provider Ave',
+          city: 'Portland',
+          state: 'OR',
+          postalCode: '97202'
+        },
+        contactInformation: {
+          name: 'Billing',
+          phoneNumber: '5551234567'
+        }
+      },
+      claimInformation: {
+        claimFilingCode: 'CI',
+        patientControlNumber: 'PAT' + Date.now().toString().slice(-6),
+        claimChargeAmount: '15000',
+        placeOfServiceCode: '02',
+        claimFrequencyCode: '1',
+        signatureIndicator: 'Y',
+        planParticipationCode: 'A',
+        benefitsAssignmentCertificationIndicator: 'Y',
+        releaseInformationCode: 'Y',
+        healthCareCodeInformation: [
+          { diagnosisTypeCode: 'ABK', diagnosisCode: 'Z00.00' }
+        ],
+        serviceLines: [
+          {
+            serviceDate: '20250121',
+            professionalService: {
+              procedureIdentifier: 'HC',
+              procedureCode: '99213',
+              lineItemChargeAmount: '15000',
+              measurementUnit: 'UN',
+              serviceUnitCount: '1',
+              placeOfServiceCode: '02',
+              compositeDiagnosisCodePointers: {
+                diagnosisCodePointers: ['1']
+              }
+            }
+          }
+        ],
+        outsideLab: false
+      }
+    };
+    
+    setFormData(testData);
+  };
+
   return (
     <div className="w-full">
       {/* Environment Selector */}
@@ -859,6 +1000,59 @@ export default function ClaimForm({ environment, credentials, payerLookupCredent
             environment={environment}
             onEnvironmentChange={onEnvironmentChange}
           />
+          
+          {/* Usage Indicator and Form Controls */}
+          <div className="mt-2 p-4 bg-gray-50 border border-gray-300 rounded">
+            <div className="flex items-center justify-between flex-wrap gap-4">
+              {/* Submit as Test Checkbox */}
+              <div className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  id="submitAsTest"
+                  checked={submitAsTest}
+                  onChange={(e) => setSubmitAsTest(e.target.checked)}
+                  className="w-4 h-4"
+                />
+                <label htmlFor="submitAsTest" className="text-sm font-medium text-gray-700 cursor-pointer">
+                  Submit as Test? 
+                  <span className="ml-2 text-xs text-gray-500">
+                    (usageIndicator: {submitAsTest ? 'T' : 'P'})
+                  </span>
+                </label>
+                {!submitAsTest && (
+                  <span className="ml-2 text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded font-semibold">
+                    LIVE MODE
+                  </span>
+                )}
+              </div>
+              
+              {/* Form Control Buttons */}
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={loadDefaultData}
+                  className="px-3 py-1 bg-blue-600 text-white rounded text-sm hover:bg-blue-700"
+                >
+                  Load Default Data
+                </button>
+                <button
+                  type="button"
+                  onClick={clearForm}
+                  className="px-3 py-1 bg-gray-600 text-white rounded text-sm hover:bg-gray-700"
+                >
+                  Clear Form
+                </button>
+              </div>
+            </div>
+            
+            <div className="mt-2 text-xs text-gray-600">
+              {submitAsTest ? (
+                <p>✅ Test mode: Claim will be validated but NOT submitted to payer</p>
+              ) : (
+                <p className="text-red-700 font-semibold">⚠️ Live mode: Claim WILL be submitted to payer for processing</p>
+              )}
+            </div>
+          </div>
         </div>
       )}
 
