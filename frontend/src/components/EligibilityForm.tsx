@@ -1,10 +1,27 @@
 import { useState, useEffect, useRef } from 'react';
 import { lookupPayer, getAllPayers, exportPayerList, parseCsvToPayers, type PayerLookupResult, type Payer } from '../services/api';
+import providerOptionsData from '../data/providerOptions.json';
 import type { EligibilityRequest, Environment, Credentials } from '../types/eligibility';
 import ApiResponseModal from './ApiResponseModal';
 
 const STORAGE_KEY_PAYERS = 'optum-payers-list';
 const STORAGE_KEY_PAYERS_CSV = 'optum-payers-csv';
+const STORAGE_KEY_SELECTED_PAYER = 'optum-selected-payer';
+const CUSTOM_PROVIDER_OPTION = 'custom';
+
+type ProviderOption = {
+  name: string;
+  npi: string;
+};
+
+const PROVIDER_OPTIONS = providerOptionsData as ProviderOption[];
+
+const getProviderSelectionValue = (name: string, npi: string) => {
+  const match = PROVIDER_OPTIONS.find(
+    (option) => option.name === name && option.npi === npi
+  );
+  return match?.npi || CUSTOM_PROVIDER_OPTION;
+};
 
 interface Props {
   onSubmit: (data: EligibilityRequest, alternatePayerIds?: string[]) => void;
@@ -45,7 +62,20 @@ const PRODUCTION_DEFAULT_DATA = {
 export default function EligibilityForm({ onSubmit, loading, environment, credentials, eligibilityCredentials }: Props) {
   const [formData, setFormData] = useState(() => {
     // Initialize based on environment
-    return environment === 'sandbox' ? SANDBOX_TEST_DATA : PRODUCTION_DEFAULT_DATA;
+    const defaultData = environment === 'sandbox' ? SANDBOX_TEST_DATA : PRODUCTION_DEFAULT_DATA;
+    
+    // Check localStorage for previously selected payer (keyed by environment)
+    const savedPayerKey = `${STORAGE_KEY_SELECTED_PAYER}-${environment}`;
+    const savedPayerId = localStorage.getItem(savedPayerKey);
+    
+    if (savedPayerId) {
+      return {
+        ...defaultData,
+        tradingPartnerServiceId: savedPayerId
+      };
+    }
+    
+    return defaultData;
   });
 
   const [payerLookup, setPayerLookup] = useState<{
@@ -198,12 +228,55 @@ export default function EligibilityForm({ onSubmit, loading, environment, creden
 
   // Update form data when environment changes
   useEffect(() => {
-    if (environment === 'sandbox') {
-      setFormData(SANDBOX_TEST_DATA);
+    const defaultData = environment === 'sandbox' ? SANDBOX_TEST_DATA : PRODUCTION_DEFAULT_DATA;
+    
+    // Check localStorage for previously selected payer for this environment
+    const savedPayerKey = `${STORAGE_KEY_SELECTED_PAYER}-${environment}`;
+    const savedPayerId = localStorage.getItem(savedPayerKey);
+    
+    if (savedPayerId) {
+      setFormData({
+        ...defaultData,
+        tradingPartnerServiceId: savedPayerId
+      });
     } else {
-      setFormData(PRODUCTION_DEFAULT_DATA);
+      setFormData(defaultData);
     }
   }, [environment]);
+
+  // Save selected payer to localStorage whenever it changes
+  useEffect(() => {
+    const payerId = formData.tradingPartnerServiceId;
+    if (payerId) {
+      const savedPayerKey = `${STORAGE_KEY_SELECTED_PAYER}-${environment}`;
+      localStorage.setItem(savedPayerKey, payerId);
+    }
+  }, [formData.tradingPartnerServiceId, environment]);
+
+  const selectedProviderValue = getProviderSelectionValue(
+    formData.providerOrgName,
+    formData.providerNPI
+  );
+
+  const handleProviderPresetChange = (value: string) => {
+    if (value === CUSTOM_PROVIDER_OPTION) {
+      setFormData((prev) => ({
+        ...prev,
+        providerOrgName: '',
+        providerNPI: ''
+      }));
+      return;
+    }
+
+    const selectedOption = PROVIDER_OPTIONS.find((option) => option.npi === value);
+    if (selectedOption) {
+      setFormData((prev) => ({
+        ...prev,
+        providerOrgName: selectedOption.name,
+        providerNPI: selectedOption.npi
+      }));
+    }
+  };
 
   // Lookup payer when tradingPartnerServiceId changes
   useEffect(() => {
@@ -294,9 +367,7 @@ export default function EligibilityForm({ onSubmit, loading, environment, creden
       }
     };
 
-    // Provider is required for EDI conversion (even though marked optional in API spec)
-    // Always include provider if fields are provided
-    // Note: Provider may be required for successful EDI conversion even in production
+    // Provider is optional - include only if fields are provided
     if (formData.providerOrgName || formData.providerNPI) {
       request.provider = {};
       if (formData.providerOrgName) {
@@ -305,18 +376,6 @@ export default function EligibilityForm({ onSubmit, loading, environment, creden
       if (formData.providerNPI) {
         request.provider.npi = formData.providerNPI.substring(0, 80);
       }
-    }
-    
-    // For sandbox, provider is required - ensure it's included
-    if (environment === 'sandbox' && (!formData.providerOrgName || !formData.providerNPI)) {
-      alert('Provider Organization Name and NPI are required for sandbox testing');
-      return;
-    }
-    
-    // For production, provider is also required for EDI conversion (even though marked optional in API spec)
-    if (environment === 'production' && (!formData.providerOrgName || !formData.providerNPI)) {
-      alert('Provider Organization Name and NPI are required for eligibility checks');
-      return;
     }
 
     // Encounter object is optional - removed as it's not necessary for basic eligibility checks
@@ -493,19 +552,31 @@ export default function EligibilityForm({ onSubmit, loading, environment, creden
       <div className="space-y-4 border p-4 rounded">
         <h3 className="font-semibold">
           Provider
-          <span className="text-red-600 ml-1">*</span>
-          <span className="text-xs text-gray-500 ml-2">(Required for EDI conversion)</span>
+          <span className="text-xs text-gray-500 ml-2">(Optional)</span>
         </h3>
+        <div>
+          <label className="text-sm text-gray-600">Select Provider Preset</label>
+          <select
+            value={selectedProviderValue}
+            onChange={(e) => handleProviderPresetChange(e.target.value)}
+            className="w-full p-2 border rounded mt-1"
+          >
+            <option value={CUSTOM_PROVIDER_OPTION}>Custom provider</option>
+            {PROVIDER_OPTIONS.map((option) => (
+              <option key={option.npi} value={option.npi}>
+                {`${option.name} (${option.npi})`}
+              </option>
+            ))}
+          </select>
+        </div>
         <input
-          required
-          placeholder="Organization Name (required)"
+          placeholder="Organization Name (optional)"
           value={formData.providerOrgName}
           onChange={(e) => setFormData({...formData, providerOrgName: e.target.value})}
           className="w-full p-2 border rounded"
         />
         <input
-          required
-          placeholder="NPI - 10 digits (required)"
+          placeholder="NPI - 10 digits (optional)"
           pattern="\d{10}"
           value={formData.providerNPI}
           onChange={(e) => setFormData({...formData, providerNPI: e.target.value})}
