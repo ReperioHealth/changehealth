@@ -19,7 +19,9 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
     ports:
-      - "9000:5173"
+      - "${FRONTEND_PORT:-9000}:5173"
+    environment:
+      - VITE_API_BASE_URL=${VITE_API_BASE_URL:-http://localhost:9001}
     volumes:
       - ./frontend/src:/app/src
     networks:
