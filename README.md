@@ -55,7 +55,7 @@ A full-stack healthcare claims management application with integrated eligibilit
 changehealth/
 ├── backend/
 │   ├── src/
-│   │   ├── server.ts                 # Express server (port 3002)
+│   │   ├── server.ts                 # Express server (port 3001)
 │   │   ├── routes/
 │   │   │   ├── eligibility.ts        # Eligibility API routes
 │   │   │   ├── payer.ts              # Payer lookup routes
@@ -85,64 +85,99 @@ changehealth/
 │   │   └── types/
 │   │       ├── eligibility.ts        # Eligibility type definitions
 │   │       └── claims.ts             # Claims type definitions
+│   ├── Dockerfile
 │   ├── package.json
 │   └── vite.config.ts
+├── terraform/                        # EC2 infrastructure (Terraform)
+│   ├── main.tf                       # Provider + S3 backend config
+│   ├── variables.tf                  # Instance type, VPC, subnet, key pair
+│   ├── data.tf                       # AMI, office/VPN IP lookups
+│   ├── security.tf                   # Security group (office/VPN only)
+│   ├── ec2.tf                        # EC2 instance + Elastic IP
+│   ├── dns.tf                        # Route53 A record
+│   └── outputs.tf                    # IP, URL, SSH command
 ├── docker-compose.yml
 ├── API_Requirements_Analysis.md      # Complete API requirements documentation
 ├── CMS1500_API_Field_Mapping.md      # Field-by-field API mapping guide
 └── README.md
 ```
 
-## 🚀 Quick Start
+## 🌐 Deployment
+
+The app runs on an EC2 instance in the staging VPC, managed by Terraform.
+
+- **URL**: http://changehealth.reperiohealth.com
+- **Backend API**: http://changehealth.reperiohealth.com:9001
+- **Access**: Restricted to office and VPN IPs only
+- **Instance**: t3.small (Amazon Linux 2023) running Docker Compose
+- **Terraform state**: S3 bucket `reperio-infrastructure-terraform`, key `changehealth/terraform.tfstate`
+
+### Infrastructure Management
+
+```bash
+cd terraform
+terraform init
+terraform plan    # Preview changes
+terraform apply   # Apply changes
+```
+
+### Deploying Code Updates
+
+```bash
+ssh -i ~/.ssh/rh-matt.pem ec2-user@<elastic-ip>
+cd /opt/changehealth
+git pull origin main
+docker compose up -d --build
+```
+
+### EC2 Environment Files
+
+On the EC2 instance, two `.env` files provide production values (both gitignored):
+
+**Root `.env`** (docker-compose overrides):
+```
+FRONTEND_PORT=80
+VITE_API_BASE_URL=http://changehealth.reperiohealth.com:9001
+```
+
+**`backend/.env`** (Optum credentials):
+```
+OPTUM_CLIENT_ID=<value>
+OPTUM_CLIENT_SECRET=<value>
+OPTUM_ENV=production
+PORT=3001
+```
+
+## 🚀 Local Development
 
 ### Prerequisites
 
-- **Node.js 18+** (for local development)
-- **Docker & Docker Compose** (for backend deployment)
+- **Docker & Docker Compose**
 - **Optum API credentials** (Client ID and Client Secret)
-  - Sandbox credentials for testing
-  - Production credentials for live claims
 
-### 1. Backend Setup (Docker)
+### 1. Setup
 
-Create `.env` file in project root (optional):
+Create `backend/.env`:
 ```bash
-OPTUM_CLIENT_ID=your_sandbox_client_id
-OPTUM_CLIENT_SECRET=your_sandbox_client_secret
+OPTUM_CLIENT_ID=your_client_id
+OPTUM_CLIENT_SECRET=your_client_secret
+OPTUM_ENV=sandbox
+PORT=3001
 ```
 
-Start backend:
+Start everything:
 ```bash
-docker-compose up -d
+docker compose up -d
 ```
 
-Backend will be available at: **http://localhost:3002**
+- **Frontend**: http://localhost:9000
+- **Backend API**: http://localhost:9001
 
-Useful Docker commands:
-```bash
-# View logs
-docker-compose logs -f backend
+No root `.env` is needed locally -- defaults in `docker-compose.yml` handle it.
 
-# Stop backend
-docker-compose down
+### 2. Access the Application
 
-# Rebuild after code changes
-docker-compose up -d --build
-```
-
-### 2. Frontend Setup
-
-```bash
-cd frontend
-npm install
-npm run dev
-```
-
-Frontend will be available at: **http://localhost:5173**
-
-### 3. Access the Application
-
-Open your browser to **http://localhost:5173** and:
+Open your browser to **http://localhost:9000** and:
 1. Select **Sandbox** or **Production** environment
 2. Enter your Optum API credentials (or use environment variables)
 3. Choose a tab:
@@ -272,10 +307,12 @@ When in **Sandbox mode**, the form can use test data for validation:
 ## 🔑 API Credentials
 
 ### Option 1: Environment Variables (Recommended)
-Set in root `.env` file:
+Set in `backend/.env`:
 ```env
 OPTUM_CLIENT_ID=your_client_id
 OPTUM_CLIENT_SECRET=your_client_secret
+OPTUM_ENV=sandbox
+PORT=3001
 ```
 
 ### Option 2: UI Form
@@ -286,7 +323,7 @@ OPTUM_CLIENT_SECRET=your_client_secret
 
 ## 📡 API Endpoints
 
-### Backend (Port 3002)
+### Backend (Port 3001, exposed as 9001)
 
 #### Eligibility
 - **POST** `/api/eligibility/check-eligibility` - Check patient eligibility
@@ -325,86 +362,49 @@ Field-by-field mapping between CMS 1500 form and API:
 - ✅ Valid values for coded fields
 - ✅ Discrepancies between form and API
 
-## 🛠️ Development
-
-### Backend (without Docker)
+## 🛠️ Development (without Docker)
 
 ```bash
-cd backend
-npm install
-npm run dev
-```
+# Backend
+cd backend && npm install && npm run dev    # runs on port 3001
 
-Backend runs on **port 3002**
-
-### Frontend
-
-```bash
-cd frontend
-npm install
-npm run dev
-```
-
-Frontend runs on **port 5173**
-
-### Building for Production
-
-**Backend:**
-```bash
-cd backend
-npm run build
-npm start
-```
-
-**Frontend:**
-```bash
-cd frontend
-npm run build
-# Outputs to frontend/dist/
+# Frontend
+cd frontend && npm install && npm run dev   # runs on port 5173
 ```
 
 ## ⚙️ Environment Variables
 
-### Backend
+### Backend (`backend/.env`)
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `PORT` | `3002` | Backend server port |
-| `OPTUM_CLIENT_ID` | - | Optum API client ID (optional) |
-| `OPTUM_CLIENT_SECRET` | - | Optum API client secret (optional) |
+| `PORT` | `3001` | Backend server port |
+| `OPTUM_CLIENT_ID` | - | Optum API client ID |
+| `OPTUM_CLIENT_SECRET` | - | Optum API client secret |
+| `OPTUM_ENV` | `sandbox` | `sandbox` or `production` |
 
-### Frontend
+### Docker Compose (root `.env`, only needed on EC2)
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `VITE_API_BASE_URL` | `http://localhost:3002` | Backend API URL |
+| `FRONTEND_PORT` | `9000` | Host port for frontend (80 on EC2) |
+| `VITE_API_BASE_URL` | `http://localhost:9001` | Backend API URL for browser requests |
 
 ## 🐛 Troubleshooting
 
 ### Backend Issues
 
-**Port 3002 in use:**
-```bash
-# Check what's using the port
-lsof -i :3002
-# Change port in backend/src/server.ts or set PORT env var
-```
-
 **Docker container not starting:**
 ```bash
-# Check Docker status
-docker ps -a
-# View logs
-docker-compose logs backend
-# Restart
-docker-compose restart backend
+docker compose ps
+docker compose logs backend
+docker compose restart backend
 ```
 
 ### Frontend Issues
 
 **Can't connect to backend:**
-- Verify backend is running: `curl http://localhost:3002`
-- Check `VITE_API_BASE_URL` in frontend `.env`
+- Verify backend is running: `curl http://localhost:9001`
 - Check browser console for CORS errors
 
 **Build errors:**
@@ -428,7 +428,7 @@ npm install
 - Check diagnosis codes are valid ICD-10 codes
 
 **"Failed to fetch" errors:**
-- Backend may not be running (start with `docker-compose up -d`)
+- Backend may not be running (start with `docker compose up -d`)
 - Check network connectivity
 - Verify API endpoints are accessible
 
