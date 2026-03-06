@@ -1,10 +1,9 @@
-import type { Credentials, EligibilityRequest, EligibilityResponse, Environment } from '../types/eligibility';
+import type { EligibilityRequest, EligibilityResponse, Environment } from '../types/eligibility';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:9001';
 
 export async function checkEligibility(
   data: EligibilityRequest,
-  credentials?: Credentials,
   environment?: Environment
 ): Promise<EligibilityResponse> {
   const response = await fetch(`${API_BASE_URL}/api/eligibility/check-eligibility`, {
@@ -12,7 +11,6 @@ export async function checkEligibility(
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       eligibilityData: data,
-      credentials: credentials || undefined,
       environment: environment || 'production'
     })
   });
@@ -61,7 +59,6 @@ export interface PayerLookupResult {
 
 export async function lookupPayer(
   payerId: string,
-  credentials?: Credentials,
   environment?: Environment
 ): Promise<PayerLookupResult> {
   const payerListParams = {
@@ -75,7 +72,6 @@ export async function lookupPayer(
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       payerListParams,
-      credentials: credentials || undefined,
       environment: environment || 'production'
     })
   });
@@ -156,7 +152,6 @@ export interface AllPayersResult {
 }
 
 export async function getAllPayers(
-  credentials?: Credentials,
   environment?: Environment,
   payerListParams?: {
     system: string;
@@ -179,7 +174,6 @@ export async function getAllPayers(
         pageSize: 100,
         sort: ['payerPlanName,asc']
       },
-      credentials: credentials || undefined,
       environment: environment || 'production'
     })
   });
@@ -214,7 +208,6 @@ export interface ExportPayersResult {
  * More efficient than paginating through all results
  */
 export async function exportPayerList(
-  credentials?: Credentials,
   environment?: Environment,
   payerListParams?: {
     system: string;
@@ -231,7 +224,6 @@ export async function exportPayerList(
         transactionType: ['Eligibility'],
         status: 'Active'
       },
-      credentials: credentials || undefined,
       environment: environment || 'production'
     })
   });

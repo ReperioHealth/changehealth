@@ -6,21 +6,17 @@ const router = express.Router();
 
 router.post('/validate', async (req, res, next) => {
   try {
-    const { credentials, claimData, environment } = req.body;
-    
+    const { claimData, environment } = req.body;
+
     if (!claimData) {
       return res.status(400).json({ message: 'claimData is required' });
     }
-    
+
     console.log('Received claim validation request');
     console.log('Environment:', environment || 'production (default)');
-    console.log('Has credentials:', !!credentials);
-    if (credentials) {
-      console.log('Credentials Client ID (first 8 chars):', credentials.clientId?.substring(0, 8) + '...');
-    }
     console.log('Request payload:', JSON.stringify(claimData, null, 2));
-    
-    const result = await validateClaim(claimData, credentials, environment);
+
+    const result = await validateClaim(claimData, environment);
     console.log('✅ Claim validation completed successfully');
     res.json(result);
   } catch (error: any) {
@@ -28,7 +24,7 @@ router.post('/validate', async (req, res, next) => {
     console.error('Error message:', error.message);
     console.error('Status:', error.response?.status);
     console.error('Response data:', JSON.stringify(error.response?.data, null, 2));
-    
+
     res.status(error.response?.status || 500).json({
       message: error.message,
       details: error.response?.data,
@@ -39,21 +35,17 @@ router.post('/validate', async (req, res, next) => {
 
 router.post('/submit', async (req, res, next) => {
   try {
-    const { credentials, claimData, environment } = req.body;
-    
+    const { claimData, environment } = req.body;
+
     if (!claimData) {
       return res.status(400).json({ message: 'claimData is required' });
     }
-    
+
     console.log('Received claim submission request');
     console.log('Environment:', environment || 'production (default)');
-    console.log('Has credentials:', !!credentials);
-    if (credentials) {
-      console.log('Credentials Client ID (first 8 chars):', credentials.clientId?.substring(0, 8) + '...');
-    }
     console.log('Request payload:', JSON.stringify(claimData, null, 2));
-    
-    const result = await submitClaim(claimData, credentials, environment);
+
+    const result = await submitClaim(claimData, environment);
     console.log('✅ Claim submission completed successfully');
     res.json(result);
   } catch (error: any) {
@@ -61,7 +53,7 @@ router.post('/submit', async (req, res, next) => {
     console.error('Error message:', error.message);
     console.error('Status:', error.response?.status);
     console.error('Response data:', JSON.stringify(error.response?.data, null, 2));
-    
+
     res.status(error.response?.status || 500).json({
       message: error.message,
       details: error.response?.data,
@@ -73,15 +65,15 @@ router.post('/submit', async (req, res, next) => {
 router.post('/generate-pdf', async (req, res, next) => {
   try {
     const { claimData } = req.body;
-    
+
     if (!claimData) {
       return res.status(400).json({ message: 'claimData is required' });
     }
-    
+
     console.log('Generating CMS 1500 PDF...');
-    
+
     const pdfBuffer = generateCMS1500PDF(claimData);
-    
+
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', 'attachment; filename=cms-1500-claim.pdf');
     res.send(pdfBuffer);
@@ -89,7 +81,7 @@ router.post('/generate-pdf', async (req, res, next) => {
     console.error('PDF generation failed:');
     console.error('Error message:', error.message);
     console.error('Stack:', error.stack);
-    
+
     res.status(500).json({
       message: error.message,
       details: 'Failed to generate CMS 1500 PDF'
@@ -98,4 +90,3 @@ router.post('/generate-pdf', async (req, res, next) => {
 });
 
 export default router;
-

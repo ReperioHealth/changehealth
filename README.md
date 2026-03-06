@@ -142,9 +142,12 @@ VITE_API_BASE_URL=http://changehealth.reperiohealth.com:9001
 
 **`backend/.env`** (Optum credentials):
 ```
-OPTUM_CLIENT_ID=<value>
-OPTUM_CLIENT_SECRET=<value>
-OPTUM_ENV=production
+OPTUM_SANDBOX_CLIENT_ID=<value>
+OPTUM_SANDBOX_CLIENT_SECRET=<value>
+OPTUM_PROD_ELIGIBILITY_CLIENT_ID=<value>
+OPTUM_PROD_ELIGIBILITY_CLIENT_SECRET=<value>
+OPTUM_PROD_PAYER_CLIENT_ID=<value>
+OPTUM_PROD_PAYER_CLIENT_SECRET=<value>
 PORT=3001
 ```
 

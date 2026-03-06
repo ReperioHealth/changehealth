@@ -1,5 +1,5 @@
 import type { ClaimSubmissionRequest, ClaimResponse } from '../types/claims';
-import type { Credentials, Environment } from '../types/eligibility';
+import type { Environment } from '../types/eligibility';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:9001';
 
@@ -38,7 +38,6 @@ function validateRequiredFields(data: ClaimSubmissionRequest): string[] {
 
 export async function validateClaim(
   data: ClaimSubmissionRequest,
-  credentials?: Credentials,
   environment?: Environment
 ): Promise<ClaimResponse> {
   // Validate required fields before sending
@@ -50,13 +49,12 @@ export async function validateClaim(
       details: validationErrors
     }, null, 2));
   }
-  
+
   const response = await fetch(`${API_BASE_URL}/api/claims/validate`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       claimData: data,
-      credentials: credentials || undefined,
       environment: environment || 'production'
     })
   });
@@ -78,7 +76,6 @@ export async function validateClaim(
 
 export async function submitClaim(
   data: ClaimSubmissionRequest,
-  credentials?: Credentials,
   environment?: Environment
 ): Promise<ClaimResponse> {
   // Validate required fields before sending
@@ -90,13 +87,12 @@ export async function submitClaim(
       details: validationErrors
     }, null, 2));
   }
-  
+
   const response = await fetch(`${API_BASE_URL}/api/claims/submit`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       claimData: data,
-      credentials: credentials || undefined,
       environment: environment || 'production'
     })
   });

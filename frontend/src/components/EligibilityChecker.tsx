@@ -4,20 +4,16 @@ import EligibilityForm from './EligibilityForm';
 import ResponseDisplay from './ResponseDisplay';
 import ApiResponseModal from './ApiResponseModal';
 import { checkEligibility } from '../services/api';
-import type { Credentials, EligibilityRequest, EligibilityResponse, Environment } from '../types/eligibility';
+import type { EligibilityRequest, EligibilityResponse, Environment } from '../types/eligibility';
 
 interface Props {
   environment: Environment;
   onEnvironmentChange: (env: Environment) => void;
-  eligibilityCredentials: Credentials | null;
-  payerLookupCredentials: Credentials | null;
 }
 
 export default function EligibilityChecker({
   environment,
-  onEnvironmentChange,
-  eligibilityCredentials,
-  payerLookupCredentials
+  onEnvironmentChange
 }: Props) {
   const [loading, setLoading] = useState(false);
   const [lastRequest, setLastRequest] = useState<EligibilityRequest | null>(null);
@@ -66,7 +62,7 @@ export default function EligibilityChecker({
 
       try {
         console.log(`Trying payer ID: ${payerId}`);
-        const result = await checkEligibility(requestWithPayerId, eligibilityCredentials || undefined, environment);
+        const result = await checkEligibility(requestWithPayerId, environment);
         
         // Check if response has AAA errors (T4, etc.) - treat as failure and try next ID
         if (result.errors && result.errors.length > 0) {
@@ -133,12 +129,10 @@ export default function EligibilityChecker({
             onEnvironmentChange={handleEnvironmentChange} 
           />
           <div className="mt-6">
-            <EligibilityForm 
-              onSubmit={handleSubmit} 
-              loading={loading} 
-              environment={environment} 
-              credentials={payerLookupCredentials}
-              eligibilityCredentials={eligibilityCredentials}
+            <EligibilityForm
+              onSubmit={handleSubmit}
+              loading={loading}
+              environment={environment}
             />
           </div>
         </div>

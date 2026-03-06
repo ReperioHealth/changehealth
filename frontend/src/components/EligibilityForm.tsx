@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { lookupPayer, getAllPayers, exportPayerList, parseCsvToPayers, type PayerLookupResult, type Payer } from '../services/api';
 import providerOptionsData from '../data/providerOptions.json';
-import type { EligibilityRequest, Environment, Credentials } from '../types/eligibility';
+import type { EligibilityRequest, Environment } from '../types/eligibility';
 import ApiResponseModal from './ApiResponseModal';
 
 const STORAGE_KEY_PAYERS = 'optum-payers-list';
@@ -27,8 +27,6 @@ interface Props {
   onSubmit: (data: EligibilityRequest, alternatePayerIds?: string[]) => void;
   loading: boolean;
   environment: Environment;
-  credentials?: Credentials | null; // Payer Lookup API credentials (for PayerList v1 API)
-  eligibilityCredentials?: Credentials | null; // Eligibility API credentials (for Eligibility v3 API)
 }
 
 // Sandbox test data constants
@@ -48,18 +46,18 @@ const SANDBOX_TEST_DATA = {
 // Production default data
 const PRODUCTION_DEFAULT_DATA = {
   tradingPartnerServiceId: 'UHC', // UnitedHealthcare - use payer code, not numeric ID
-  providerOrgName: 'Reperio Health Medical Group, PLLC',
-  providerNPI: '1982438362',
-  memberId: '***REDACTED***',
-  firstName: 'Matthew',
-  lastName: 'Wallington',
-  dateOfBirth: '***REDACTED_DOB***',
+  providerOrgName: '',
+  providerNPI: '',
+  memberId: '',
+  firstName: '',
+  lastName: '',
+  dateOfBirth: '',
   gender: 'M' as 'M' | 'F',
   groupNumber: '',
   ssn: ''
 };
 
-export default function EligibilityForm({ onSubmit, loading, environment, credentials, eligibilityCredentials }: Props) {
+export default function EligibilityForm({ onSubmit, loading, environment }: Props) {
   const [formData, setFormData] = useState(() => {
     // Initialize based on environment
     const defaultData = environment === 'sandbox' ? SANDBOX_TEST_DATA : PRODUCTION_DEFAULT_DATA;
@@ -135,13 +133,6 @@ export default function EligibilityForm({ onSubmit, loading, environment, creden
       localStorage.removeItem(csvCacheKey);
     }
 
-    // Need Payer Lookup API credentials to fetch payers from PayerList v1 API
-    if (!credentials) {
-      console.log('No Payer Lookup API credentials available, skipping payer list fetch');
-      console.log('Please configure Payer Lookup API credentials in Settings');
-      return;
-    }
-
     setLoadingPayers(true);
     setPayersError(null);
 
@@ -156,7 +147,6 @@ export default function EligibilityForm({ onSubmit, loading, environment, creden
       // Use export endpoint to get all payers in CSV format
       console.log('Exporting payers list as CSV...');
       const exportResult = await exportPayerList(
-        credentials, // Payer Lookup API credentials (from Settings tab)
         environment,
         payerListParams
       );
@@ -221,10 +211,10 @@ export default function EligibilityForm({ onSubmit, loading, environment, creden
     }
   };
 
-  // Load payers list on mount and when environment/credentials change
+  // Load payers list on mount and when environment changes
   useEffect(() => {
     loadPayers();
-  }, [environment, credentials, retryCount]);
+  }, [environment, retryCount]);
 
   // Update form data when environment changes
   useEffect(() => {
@@ -299,10 +289,8 @@ export default function EligibilityForm({ onSubmit, loading, environment, creden
     // Debounce the API call
     debounceTimer.current = setTimeout(async () => {
       try {
-        // Use Payer Lookup API credentials (not Eligibility credentials) for PayerList v1 API
         const result = await lookupPayer(
-          payerId, 
-          credentials || undefined, // Payer Lookup API credentials (from Settings tab)
+          payerId,
           environment
         );
         
@@ -339,7 +327,7 @@ export default function EligibilityForm({ onSubmit, loading, environment, creden
         clearTimeout(debounceTimer.current);
       }
     };
-  }, [formData.tradingPartnerServiceId, environment, credentials]);
+  }, [formData.tradingPartnerServiceId, environment]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -447,7 +435,7 @@ export default function EligibilityForm({ onSubmit, loading, environment, creden
                 {payersError.includes('401') && (
                   <div className="text-xs font-semibold mt-2">
                     Note: 401 Unauthorized suggests the Payer Lookup API credentials may not have permission to fetch payers.
-                    Please check your credentials in Settings.
+                    Please check the backend .env configuration.
                   </div>
                 )}
                 <div className="flex gap-2 mt-2">

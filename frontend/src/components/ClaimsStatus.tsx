@@ -1,12 +1,11 @@
 import React from 'react';
-import type { Environment, Credentials } from '../types/eligibility';
+import type { Environment } from '../types/eligibility';
 
 interface Props {
   environment: Environment;
-  credentials: Credentials | null;
 }
 
-export default function ClaimsStatus({ environment, credentials }: Props) {
+export default function ClaimsStatus({ environment }: Props) {
   return (
     <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
       <div className="text-center py-12">
@@ -20,5 +19,3 @@ export default function ClaimsStatus({ environment, credentials }: Props) {
     </div>
   );
 }
-
-

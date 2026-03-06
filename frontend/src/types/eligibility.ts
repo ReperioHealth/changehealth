@@ -1,8 +1,3 @@
-export interface Credentials {
-  clientId: string;
-  clientSecret: string;
-}
-
 export type Environment = 'sandbox' | 'production';
 
 export interface EligibilityRequest {

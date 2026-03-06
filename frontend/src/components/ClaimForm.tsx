@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import type { ClaimSubmissionRequest, ServiceLine, ClaimResponse } from '../types/claims';
-import type { Environment, Credentials } from '../types/eligibility';
+import type { Environment } from '../types/eligibility';
 import { validateClaim, submitClaim, generateClaimPDF } from '../services/claimsApi';
 import { exportPayerList, parseCsvToPayers, type Payer } from '../services/api';
 import providerOptionsData from '../data/providerOptions.json';
@@ -10,8 +10,6 @@ import ApiResponseModal from './ApiResponseModal';
 
 interface Props {
   environment: Environment;
-  credentials: Credentials | null;
-  payerLookupCredentials?: Credentials | null;
   onEnvironmentChange?: (env: Environment) => void;
 }
 
@@ -161,7 +159,7 @@ function formatDateForInput(dateStr: string): string {
   return dateStr;
 }
 
-export default function ClaimForm({ environment, credentials, payerLookupCredentials, onEnvironmentChange }: Props) {
+export default function ClaimForm({ environment, onEnvironmentChange }: Props) {
   // Load form data from localStorage or use defaults
   const [formData, setFormData] = useState<Partial<ClaimSubmissionRequest>>(() => {
     const saved = localStorage.getItem(STORAGE_KEY_FORM_DATA);
@@ -282,11 +280,6 @@ export default function ClaimForm({ environment, credentials, payerLookupCredent
       localStorage.removeItem(csvCacheKey);
     }
 
-    if (!payerLookupCredentials) {
-      console.log('No Payer Lookup API credentials available for Claims Form');
-      return;
-    }
-
     setLoadingPayers(true);
     setPayersError(null);
 
@@ -299,7 +292,6 @@ export default function ClaimForm({ environment, credentials, payerLookupCredent
     try {
       console.log('Exporting payers list as CSV for claims...');
       const exportResult = await exportPayerList(
-        payerLookupCredentials,
         environment,
         payerListParams
       );
@@ -440,10 +432,10 @@ export default function ClaimForm({ environment, credentials, payerLookupCredent
     localStorage.setItem(savedPayerKey, payerId);
   };
 
-  // Load payers on mount and when environment/credentials change
+  // Load payers on mount and when environment changes
   useEffect(() => {
     loadPayers();
-  }, [environment, payerLookupCredentials]);
+  }, [environment]);
 
   // Load previously selected payer on mount
   useEffect(() => {
@@ -640,11 +632,6 @@ export default function ClaimForm({ environment, credentials, payerLookupCredent
   };
 
   const handleValidate = async () => {
-    if (!credentials) {
-      setError('Credentials required');
-      return;
-    }
-
     setLoading(true);
     setError(null);
     setResponse(null);
@@ -731,7 +718,7 @@ export default function ClaimForm({ environment, credentials, payerLookupCredent
       }));
 
       setLastRequest(claimRequest);
-      const result = await validateClaim(claimRequest, credentials, environment);
+      const result = await validateClaim(claimRequest, environment);
       setResponse(result);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -741,11 +728,6 @@ export default function ClaimForm({ environment, credentials, payerLookupCredent
   };
 
   const handleSubmit = async () => {
-    if (!credentials) {
-      setError('Credentials required');
-      return;
-    }
-
     setLoading(true);
     setError(null);
     setResponse(null);
@@ -832,7 +814,7 @@ export default function ClaimForm({ environment, credentials, payerLookupCredent
       }));
 
       setLastRequest(claimRequest);
-      const result = await submitClaim(claimRequest, credentials, environment);
+      const result = await submitClaim(claimRequest, environment);
       setResponse(result);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -2780,7 +2762,7 @@ export default function ClaimForm({ environment, credentials, payerLookupCredent
             <button
               type="button"
               onClick={handleValidate}
-              disabled={loading || !credentials}
+              disabled={loading}
               className={`flex-1 px-6 py-3 rounded-md font-semibold ${
                 loading && actionType === 'validate'
                   ? 'bg-gray-400 cursor-not-allowed'
@@ -2792,7 +2774,7 @@ export default function ClaimForm({ environment, credentials, payerLookupCredent
             <button
               type="button"
               onClick={handleSubmit}
-              disabled={loading || !credentials}
+              disabled={loading}
               className={`flex-1 px-6 py-3 rounded-md font-semibold ${
                 loading && actionType === 'submit'
                   ? 'bg-gray-400 cursor-not-allowed'
