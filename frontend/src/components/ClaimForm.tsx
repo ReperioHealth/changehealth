@@ -908,11 +908,11 @@ export default function ClaimForm({ environment, onEnvironmentChange }: Props) {
       },
       subscriber: {
         paymentResponsibilityLevelCode: 'P',
-        memberId: '***REDACTED***',
-        firstName: 'Matthew',
-        lastName: 'Wallington',
+        memberId: '',
+        firstName: '',
+        lastName: '',
         gender: 'M',
-        dateOfBirth: '19791118',
+        dateOfBirth: '',
         address: {
           address1: '123 Main St',
           city: 'Portland',
