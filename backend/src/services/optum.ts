@@ -22,17 +22,18 @@ type ApiType = 'eligibility' | 'payer';
 function resolveCredentials(environment?: string, apiType: ApiType = 'eligibility'): Credentials {
   const env = environment || 'production';
 
-  if (env === 'sandbox') {
-    return {
-      clientId: process.env.OPTUM_SANDBOX_CLIENT_ID!,
-      clientSecret: process.env.OPTUM_SANDBOX_CLIENT_SECRET!
-    };
-  }
-
+  // PayerList API always uses production endpoint, so always use prod payer creds
   if (apiType === 'payer') {
     return {
       clientId: process.env.OPTUM_PROD_PAYER_CLIENT_ID!,
       clientSecret: process.env.OPTUM_PROD_PAYER_CLIENT_SECRET!
+    };
+  }
+
+  if (env === 'sandbox') {
+    return {
+      clientId: process.env.OPTUM_SANDBOX_CLIENT_ID!,
+      clientSecret: process.env.OPTUM_SANDBOX_CLIENT_SECRET!
     };
   }
 
@@ -128,7 +129,7 @@ export async function lookupPayer(payerListParams: any, environment?: string) {
   const creds = resolveCredentials(environment, 'payer');
 
   const baseUrl = getPayerListBaseUrl(); // Always use prod for PayerList
-  const token = await getAccessToken(creds, environment, undefined);
+  const token = await getAccessToken(creds, 'production', undefined); // Always prod token for PayerList
 
   const optumApiUrl = `${baseUrl}/medicalnetwork/payerlist/v1/payers`;
 
@@ -171,7 +172,7 @@ export async function getAllPayers(payerListParams: any, environment?: string) {
   const creds = resolveCredentials(environment, 'payer');
 
   const baseUrl = getPayerListBaseUrl();
-  const token = await getAccessToken(creds, environment, undefined);
+  const token = await getAccessToken(creds, 'production', undefined); // Always prod token for PayerList
 
   const optumApiUrl = `${baseUrl}/medicalnetwork/payerlist/v1/payers`;
 
@@ -214,7 +215,7 @@ export async function exportPayerList(payerListParams: any, environment?: string
   const creds = resolveCredentials(environment, 'payer');
 
   const baseUrl = getPayerListBaseUrl();
-  const token = await getAccessToken(creds, environment, undefined);
+  const token = await getAccessToken(creds, 'production', undefined); // Always prod token for PayerList
 
   const optumApiUrl = `${baseUrl}/medicalnetwork/payerlist/v1/payers/export`;
 
