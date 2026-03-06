@@ -29,23 +29,8 @@ interface Props {
   environment: Environment;
 }
 
-// Sandbox test data constants
-const SANDBOX_TEST_DATA = {
-  tradingPartnerServiceId: '00001', // Test payer ID that returns single coverage plan
-  providerOrgName: 'happy doctors group',
-  providerNPI: '0123456789',
-  memberId: '0000000000',
-  firstName: 'johnone',
-  lastName: 'doeone',
-  dateOfBirth: '1980-01-01',
-  gender: 'M' as 'M' | 'F',
-  groupNumber: '',
-  ssn: ''
-};
-
-// Production default data
-const PRODUCTION_DEFAULT_DATA = {
-  tradingPartnerServiceId: 'UHC', // UnitedHealthcare - use payer code, not numeric ID
+const DEFAULT_FORM_DATA = {
+  tradingPartnerServiceId: '',
   providerOrgName: '',
   providerNPI: '',
   memberId: '',
@@ -60,7 +45,7 @@ const PRODUCTION_DEFAULT_DATA = {
 export default function EligibilityForm({ onSubmit, loading, environment }: Props) {
   const [formData, setFormData] = useState(() => {
     // Initialize based on environment
-    const defaultData = environment === 'sandbox' ? SANDBOX_TEST_DATA : PRODUCTION_DEFAULT_DATA;
+    const defaultData = DEFAULT_FORM_DATA;
     
     // Check localStorage for previously selected payer (keyed by environment)
     const savedPayerKey = `${STORAGE_KEY_SELECTED_PAYER}-${environment}`;
@@ -218,7 +203,7 @@ export default function EligibilityForm({ onSubmit, loading, environment }: Prop
 
   // Update form data when environment changes
   useEffect(() => {
-    const defaultData = environment === 'sandbox' ? SANDBOX_TEST_DATA : PRODUCTION_DEFAULT_DATA;
+    const defaultData = DEFAULT_FORM_DATA;
     
     // Check localStorage for previously selected payer for this environment
     const savedPayerKey = `${STORAGE_KEY_SELECTED_PAYER}-${environment}`;
