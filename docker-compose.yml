@@ -6,18 +6,25 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     ports:
-      - "3001:3001"
-    environment:
-      - PORT=3001
-      - OPTUM_ENV=${OPTUM_ENV:-production}
-      - OPTUM_CLIENT_ID=${OPTUM_CLIENT_ID:-}
-      - OPTUM_CLIENT_SECRET=${OPTUM_CLIENT_SECRET:-}
+      - "9001:3001"
+    env_file:
+      - ./backend/.env
     volumes:
       - ./backend/src:/app/src
+    networks:
+      - app-network
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "9000:5173"
+    volumes:
+      - ./frontend/src:/app/src
     networks:
       - app-network
 
 networks:
   app-network:
     driver: bridge
-
